@@ -39,7 +39,8 @@ namespace ModelDepotSetup
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             BackColor = Paper;
-            StartPosition = FormStartPosition.CenterScreen;
+            StartPosition = Hidden ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
+            ShowInTaskbar = !Hidden;        // set before the window exists: changing it later makes the window again
             web.Dock = DockStyle.Fill;
             web.DefaultBackgroundColor = Paper;
             web.Visible = false;
@@ -48,10 +49,22 @@ namespace ModelDepotSetup
 
         int Dpi => IsHandleCreated ? (int)Native.GetDpiForWindow(Handle) : 96;
 
+        // For checks run while someone uses the computer (MODEL_DEPOT_SETUP_HIDDEN=1): the window opens beyond every
+        // screen, without taking the focus or a taskbar button; the page is driven over WebView2's debugging port.
+        static readonly bool Hidden = Environment.GetEnvironmentVariable("MODEL_DEPOT_SETUP_HIDDEN") == "1";
+
+        protected override bool ShowWithoutActivation => Hidden;
+
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             ClientSize = new Size(PageDip.Width * Dpi / 96, PageDip.Height * Dpi / 96);
+            if (Hidden)
+            {
+                var all = SystemInformation.VirtualScreen;
+                Location = new Point(all.Left - Width - 200, all.Top);
+                return;
+            }
             var area = Screen.FromHandle(Handle).WorkingArea;
             Location = new Point(area.Left + Math.Max(0, (area.Width - Width) / 2), area.Top + Math.Max(0, (area.Height - Height) / 2));
         }
@@ -203,13 +216,15 @@ namespace ModelDepotSetup
                 case "info":
                     return await Task.Run(() => uninstallTarget == null ? engine.Info() : engine.UninstallInfo(uninstallTarget));
                 case "check":
-                    return await Task.Run(() => engine.Check(Arg(msg, "install"), Arg(msg, "library"), Arg(msg, "data")));
+                    return await Task.Run(() => engine.Check(Arg(msg, "install"), Arg(msg, "library"), Arg(msg, "data"), Arg(msg, "comfy")));
+                case "comfy":
+                    return await Task.Run(() => engine.InspectComfy(Arg(msg, "path")));
                 case "list":
                     return engine.List(Arg(msg, "path"));
                 case "mkdir":
                     return engine.MakeFolder(Arg(msg, "path"), Arg(msg, "name"));
                 case "install":
-                    return Start(t => engine.Install(Arg(msg, "install"), Arg(msg, "library"), Arg(msg, "data"), Arg(msg, "lang"), Report, t));
+                    return Start(t => engine.Install(Arg(msg, "install"), Arg(msg, "library"), Arg(msg, "data"), Arg(msg, "comfy"), Arg(msg, "lang"), Report, t));
                 case "uninstall":
                     return Start(t => engine.Uninstall(uninstallTarget, Report, t));
                 case "cancel":

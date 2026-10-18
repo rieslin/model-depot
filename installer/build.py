@@ -308,10 +308,14 @@ def package(s):
     nodes = os.path.join(s["stage"], "ComfyUI", "ComfyUI", "custom_nodes")
     workflows = os.path.join(s["stage"], "workflows")
     optional = os.path.join(workflows, OPTIONAL_FOLDER)
+    node_names = sorted((d for d in os.listdir(nodes) if os.path.isdir(os.path.join(nodes, d)) and not d.startswith((".", "__"))
+                         and not d.endswith(".disabled")), key=str.lower)
     manifest = {
         "version": version(), "comfyui": comfyui_version(s), "parts": parts,
+        # the setup compares an existing ComfyUI's custom nodes with these folder names
+        "custom_node_names": node_names,
         "counts": {
-            "custom_nodes": sum(1 for d in os.listdir(nodes) if os.path.isdir(os.path.join(nodes, d)) and not d.startswith((".", "__"))),
+            "custom_nodes": len(node_names),
             "official": sum(1 for n in os.listdir(workflows) if n.endswith(".json")),
             "optional": sum(1 for n in os.listdir(optional) if n.endswith(".json")) if os.path.isdir(optional) else 0,
         },

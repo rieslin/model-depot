@@ -3,8 +3,9 @@ see paths.install_info), so that the setup wizard opens with ComfyUI's model fol
 in place and the inbox folders set. Nothing is saved here; the wizard saves when the user confirms it.
 
 install.json, written by the setup:
-    {"version", "install_dir", "data_dir", "python", "comfyui_dir", "models_dir", "llm_dir",
+    {"version", "install_dir", "data_dir", "python", "comfyui_dir", "comfyui_own", "models_dir", "llm_dir",
      "inbox": [folder, ...], "inbox_once": [folder, ...], "language": "zh" | "en"}
+comfyui_own is false when the setup used a portable ComfyUI already on the computer instead of the bundled one.
 """
 import logging
 import os

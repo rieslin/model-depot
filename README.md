@@ -9,7 +9,7 @@
 
 Model Depot is a local manager for image-generation models. It takes stock of the Checkpoints, diffusion models, LoRAs, VAEs and other model files on your computer, identifies each one by its fingerprint against [civitai](https://civitai.com), downloads and updates models from civitai, and keeps a card of recommended settings for every model. Image programs such as [ComfyUI](https://github.com/Comfy-Org/ComfyUI) can read the model list and the settings over a local API. Everything is stored on your own computer.
 
-Version 0.6.0 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
+Version 0.6.1 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
 
 ## Features
 
@@ -42,7 +42,7 @@ Version 0.6.0 · Windows app and Windows installer · English and Chinese interf
 
 ### Install with the Windows installer
 
-The setup installs Model Depot together with its own Python, a portable ComfyUI with custom nodes and workflows, llama.cpp for the local language model and the PixAI tagger model, without downloading anything during installation. It asks where to install, where the model library goes and where Model Depot keeps its data. Model files are not included: put them into the `models` folder beside the setup, and Model Depot sorts them into the library on first start once you confirm.
+The setup installs Model Depot together with its own Python, a portable ComfyUI with custom nodes and workflows, llama.cpp for the local language model and the PixAI tagger model, without downloading anything during installation. When a portable ComfyUI is already on the computer, the setup offers to use it instead of installing another: nothing of it changes, the workflows go into a "Model Depot" folder of its workflow list, and the custom nodes it lacks are listed for installing with ComfyUI Manager. The setup asks where to install, where the model library goes and where Model Depot keeps its data. Model files are not included: put them into the `models` folder beside the setup, and Model Depot sorts them into the library on first start once you confirm.
 
 Requirements: Windows 10 or 11, an NVIDIA RTX 20 series graphics card or later with driver 580 or later, and about 9 GB of free space plus room for the models. The setup is not digitally signed, so Windows may ask for confirmation the first time it runs.
 

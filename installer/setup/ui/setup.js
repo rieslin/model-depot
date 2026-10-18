@@ -1,4 +1,4 @@
-// The setup's page: four steps to install (where, models and data, installing, finished), three to remove. It asks
+// The setup's page: five steps to install (ComfyUI, where, models and data, installing, finished), three to remove. It asks
 // the window (SetupForm.cs) for everything it needs over postMessage; ?demo shows it in a browser without the window,
 // with sample answers.
 'use strict';
@@ -13,11 +13,46 @@ const WORDS = {
   tagline_remove: ['<span class="cjk">卸载</span>', 'UNINSTALL'],
   meta: ['<span class="cjk">MODEL DEPOT · COMFYUI {c} · 本地模型 · 版本 {v}</span>', 'MODEL DEPOT · COMFYUI {c} · LOCAL MODEL · VERSION {v}'],
   meta_remove: ['<span class="cjk">MODEL DEPOT · COMFYUI · 本地模型运行程序</span>', 'MODEL DEPOT · COMFYUI · LOCAL MODEL RUNTIME'],
-  steps: [['安装位置', '模型与数据', '安装', '完成'], ['Location', 'Models & Data', 'Install', 'Finish']],
+  steps: [['ComfyUI', '安装位置', '模型与数据', '安装', '完成'], ['ComfyUI', 'Location', 'Models & Data', 'Install', 'Finish']],
   steps_remove: [['确认', '卸载', '完成'], ['Confirm', 'Remove', 'Finish']],
+  comfy_title: ['ComfyUI', 'ComfyUI'],
+  comfy_lead: ['Model Depot 与 ComfyUI 共用同一个模型库。本机已装有 ComfyUI 时可直接沿用，不再另装一份。',
+    'Model Depot and ComfyUI share one model library. A ComfyUI already on this computer can be used instead of installing another.'],
+  comfy_existing: ['使用本机已有的 ComfyUI', 'Use the ComfyUI on this computer'],
+  comfy_bundled: ['安装自带的 ComfyUI 便携版', 'Install the bundled portable ComfyUI'],
+  comfy_bundled_note: ['ComfyUI {c}，含 {nodes} 个插件、{official} 个默认工作流与 {optional} 个可选工作流',
+    'ComfyUI {c}, with {nodes} custom nodes, {official} default and {optional} optional workflows'],
+  comfy_found_note: ['便携版 {c}', 'Portable {c}'],
+  comfy_found_plain: ['便携版', 'Portable'],
+  comfy_other: ['更改…', 'Change…'],
+  comfy_none: ['未在本机找到 ComfyUI。', 'No ComfyUI was found on this computer.'],
+  comfy_pick: ['选择文件夹…', 'Choose Folder…'],
+  comfy_nodes_all: ['插件：{n} 个均已具备', 'Custom nodes: all {n} present'],
+  comfy_nodes_some: ['插件：缺少 {m} 个（共 {n} 个）', 'Custom nodes: {m} of {n} missing'],
+  comfy_older: ['版本较旧，部分默认工作流可能无法使用', 'An older version: some default workflows may not work'],
+  comfy_library: ['模型库：沿用其模型文件夹', 'Model library: its models folder'],
+  comfy_workflows: ['工作流：{k} 个放入「Model Depot」文件夹', 'Workflows: {k} into a "Model Depot" folder'],
+  comfy_missing_note: ['工作流放入单独的文件夹，原有文件不变。缺少的插件可在安装完成后经 ComfyUI 管理器安装，补齐之前用到它们的功能无法使用。',
+    'The workflows go into a folder of their own; nothing already there changes. The missing custom nodes can be installed afterwards with ComfyUI Manager; the features that use them do not work until then.'],
+  nodes: {
+    'ComfyUI-Crystools': ['资源监视与图像信息', 'Resource monitor and image details'],
+    'ComfyUI-Impact-Pack': ['细节修复（人脸、手部）', 'Detail fixing (faces, hands)'],
+    'ComfyUI-Impact-Subpack': ['细节修复所用的检测模型', 'Detection models for detail fixing'],
+    'ComfyUI-KJNodes': ['常用辅助节点：尺寸、遮罩与批处理', 'Common helpers: sizes, masks, batches'],
+    'ComfyUI-Krea2-Ostris-Edit': ['Krea 2 图像编辑', 'Krea 2 image editing'],
+    'ComfyUI-PixAI-Tagger': ['图片标签读取（PixAI）', 'Image tags (PixAI)'],
+    'ComfyUI_UltimateSDUpscale': ['分块放大', 'Tiled upscaling'],
+    'ComfyUI_essentials': ['基础图像处理节点', 'Essential image nodes'],
+    'comfyui_controlnet_aux': ['ControlNet 预处理（姿势、深度、线稿）', 'ControlNet preprocessors (pose, depth, lines)'],
+    'rgthree-comfy': ['工作流整理与开关', 'Workflow tidying and switches'],
+    'seedvr2_videoupscaler': ['SeedVR2 放大', 'SeedVR2 upscaling'],
+    'was-node-suite-comfyui': ['通用图像与文本节点', 'General image and text nodes'],
+  },
   where_title: ['安装位置', 'Installation folder'],
   where_lead: ['Model Depot、ComfyUI 与本地模型运行程序安装在同一文件夹中。路径中不宜包含中文或其他非英文字符。',
     'Model Depot, ComfyUI and the local model runtime are installed in one folder. Use a path with English characters only.'],
+  where_lead_existing: ['Model Depot 与本地模型运行程序安装在同一文件夹中。路径中不宜包含中文或其他非英文字符。',
+    'Model Depot and the local model runtime are installed in one folder. Use a path with English characters only.'],
   where_label: ['安装位置', 'Install to'],
   browse: ['浏览…', 'Browse…'],
   need: ['需要 {n}', '{n} required'],
@@ -32,6 +67,7 @@ const WORDS = {
   part_comfy: ['ComfyUI {c}', 'ComfyUI {c}'],
   part_comfy_note: ['含 {nodes} 个插件、{official} 个默认工作流与 {optional} 个可选工作流',
     'With {nodes} custom nodes, {official} default workflows and {optional} optional ones'],
+  part_comfy_existing: ['沿用 {p}；工作流放入其中的「Model Depot」文件夹', 'Uses {p}; the workflows go into its "Model Depot" folder'],
   part_llm: ['本地模型运行程序', 'Local model runtime'],
   part_llm_note: ['llama.cpp，用于读取作者说明', 'llama.cpp, for reading the authors\' notes'],
   part_tagger: ['PixAI 打标模型', 'PixAI Tagger'],
@@ -40,6 +76,8 @@ const WORDS = {
   library_label: ['模型库', 'Model library'],
   library_help: ['ComfyUI 与 Model Depot 均从此处读取模型；按 ComfyUI 的类型建立子文件夹。',
     'ComfyUI and Model Depot both read models from here; a sub-folder is made for each ComfyUI model type.'],
+  library_fixed: ['沿用所选 ComfyUI 的模型文件夹；ComfyUI 与 Model Depot 均从此处读取模型。',
+    'The chosen ComfyUI\'s models folder: ComfyUI and Model Depot both read models from here.'],
   data_label: ['数据文件夹', 'Data folder'],
   data_help: ['Model Depot 的设置、资料卡与封面。', 'Model Depot\'s settings, model cards and covers.'],
   inbox_some: ['安装包旁的 models 文件夹中有 <b>{n}</b> 个模型文件，共 <b>{size}</b>。首次打开 Model Depot 时列出整理清单，确认后移入模型库。',
@@ -56,6 +94,7 @@ const WORDS = {
     comfyui: ['ComfyUI', 'ComfyUI'], library: ['PixAI 打标模型', 'the PixAI Tagger'], workflows: ['工作流', 'the workflows'] },
   done_title: ['安装完成', 'Installation complete'],
   done_lead: ['已在桌面与开始菜单中创建 Model Depot 与 ComfyUI 的快捷方式。', 'Shortcuts to Model Depot and ComfyUI are on the desktop and in the Start menu.'],
+  done_lead_existing: ['已在桌面与开始菜单中创建 Model Depot 的快捷方式。', 'Shortcuts to Model Depot are on the desktop and in the Start menu.'],
   open_now: ['立即打开 Model Depot', 'Open Model Depot now'],
   done_note: ['首次打开时依次完成设置（语言、civitai 密钥与网络）与模型整理。',
     'The first time it opens, Model Depot asks for its settings (language, civitai key and network), then sorts the models.'],
@@ -85,11 +124,14 @@ const WORDS = {
     unpack_failed: ['解压失败：{detail}', 'Unpacking failed: {detail}'],
     update_incomplete: ['更新未完成。再次运行安装程序即可完成更新，设置、资料与模型不受影响。', 'The update did not finish. Run the setup again to complete it; settings, records and models are not affected.'],
     not_installed: ['未找到要卸载的程序。', 'The installation to remove was not found.'],
+    not_comfyui: ['所选文件夹不是 ComfyUI 便携版。', 'The chosen folder is not a portable ComfyUI.'],
     failed: ['出现错误：{detail}', 'An error occurred: {detail}'],
   },
   remove_title: ['卸载 Model Depot', 'Uninstall Model Depot'],
   remove_lead: ['将删除 Model Depot、ComfyUI 与本地模型运行程序的程序文件。以下内容保留，如不再需要可手动删除：',
     'The program files of Model Depot, ComfyUI and the local model runtime are removed. These are kept; delete them by hand if they are no longer wanted:'],
+  remove_lead_existing: ['将删除 Model Depot 与本地模型运行程序的程序文件。以下内容保留，如不再需要可手动删除：',
+    'The program files of Model Depot and the local model runtime are removed. These are kept; delete them by hand if they are no longer wanted:'],
   kept_library: ['模型库', 'Model library'], kept_data: ['数据文件夹', 'Data folder'], kept_inbox: ['待整理文件夹', 'Inbox folder'],
   kept_comfy: ['工作流与出图', 'Workflows, images'],
   kept_comfy_path: ['{p} 中的 user、output、input', 'user, output and input in {p}'],
@@ -170,7 +212,7 @@ if (!DEMO) {
 const $ = (id) => document.getElementById(id);
 let info = null;
 let busy = false;           // an install or a removal is under way
-const form = { install: '', library: '', data: '', libraryEdited: false, dataEdited: false };
+const form = { install: '', library: '', data: '', comfy: '', libraryEdited: false, dataEdited: false };   // comfy: an existing ComfyUI, or '' for the bundled one
 let checked = null;         // the window's answer about the places chosen
 
 function frame(step) {
@@ -178,7 +220,7 @@ function frame(step) {
   $('tagline').innerHTML = UNINSTALL ? t('tagline_remove') : th('tagline', { v: info.version });
   $('head-title').textContent = UNINSTALL ? 'UNINSTALL' : 'SETUP';
   $('head-meta').innerHTML = UNINSTALL ? t('meta_remove') : th('meta', { v: info.version, c: info.comfyui });
-  if (!UNINSTALL && step !== 2) $('head-count').textContent = String(step + 1).padStart(2, '0') + '/04';
+  if (!UNINSTALL && step !== 3) $('head-count').textContent = String(step + 1).padStart(2, '0') + '/' + String(names.length).padStart(2, '0');
   if (UNINSTALL) $('head-count').textContent = '';
   fill($('steps'), names.map((name, i) => h('span', { class: 'type-tab' + (i < step ? ' done' : ''), 'aria-pressed': String(i === step) },
     name, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')))));
@@ -263,7 +305,7 @@ function recheck() {
   recheckTimer = setTimeout(async () => {
     const mine = ++checkSeq;
     let answer = null;
-    try { answer = await call('check', { install: form.install, library: form.library, data: form.data }); } catch (e) { answer = null; }
+    try { answer = await call('check', { install: form.install, library: form.library, data: form.data, comfy: form.comfy }); } catch (e) { answer = null; }
     if (mine !== checkSeq) return;
     checked = answer;
     showProblems();
@@ -296,38 +338,113 @@ function gpuLine() {
   return h('li', { class: g.ok ? 'good' : 'warn' }, t(g.ok ? 'gpu_ok' : 'gpu_old', { name: g.name, driver: g.driver }));
 }
 
-function stepWhere() {
+// ---- ComfyUI: the one already on this computer, or the bundled one ---------------------------------------------------
+let comfyFound = null;      // the existing ComfyUI the first choice shows (found, or picked by hand)
+let comfyProblem = '';      // the folder picked by hand was not one
+function chooseExisting(found) { comfyFound = found; form.comfy = found.path; form.library = found.models; }
+function chooseBundled() {
+  form.comfy = '';
+  if (!form.libraryEdited) form.library = form.install.replace(/[\\/]+$/, '') + '\\ComfyUI\\ComfyUI\\models';
+}
+
+async function pickComfy(e) {
+  e.stopPropagation();
+  const chosen = await pickFolder(comfyFound ? comfyFound.path + '\\' : '');
+  if (!chosen) return;
+  try {
+    chooseExisting(await call('comfy', { path: chosen }));
+    comfyProblem = '';
+  } catch (err) {
+    comfyProblem = t('problem.' + (err.code === 'not_comfyui' ? 'not_comfyui' : 'failed'), { detail: err.detail || err.code });
+  }
+  stepComfy();
+}
+
+function choiceRow(on, off, title, note, end, onpick) {
+  const row = h('div', { class: 'choice' + (on ? ' on' : '') + (off ? ' off' : ''), role: 'radio', 'aria-checked': String(on),
+    'aria-disabled': off ? 'true' : null, tabindex: off ? '-1' : '0' },
+  h('span', { class: 'box' }), h('span', null, h('span', { class: 'ch-title' }, title), note ? h('small', { class: 'ch-note' }, note) : null), end);
+  if (!off) {
+    row.addEventListener('click', onpick);
+    row.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onpick(); } });
+  }
+  return row;
+}
+
+function stepComfy() {
   frame(0);
+  currentFields = [];
+  const counts = info.counts || {};
+  const f = comfyFound;
+  const existing = !!form.comfy;
+  const pick = btn(f ? t('comfy_other') : t('comfy_pick'), 'line', pickComfy, { class: 'btn btn-line ch-btn' });
+  const note = f ? f.path + ' · ' + (f.version ? t('comfy_found_note', { c: f.version }) : t('comfy_found_plain')) : t('comfy_none');
+  const missing = f ? f.missing || [] : [];
+  const detail = existing && f ? h('div', { class: 'ch-detail' },
+    h('ul', { class: 'facts' },
+      h('li', { class: missing.length ? 'warn' : 'good' }, missing.length ? t('comfy_nodes_some', { n: f.nodes, m: missing.length }) : t('comfy_nodes_all', { n: f.nodes })),
+      f.older ? h('li', { class: 'warn' }, t('comfy_older')) : null,
+      h('li', null, t('comfy_library')),
+      h('li', null, t('comfy_workflows', { k: (counts.official || 0) + (counts.optional || 0) }))),
+    missing.length ? h('div', { class: 'ch-missing' },
+      h('ul', { class: 'su-list' }, missing.map((name) => h('li', null, h('span', null, name), h('small', null, WORDS.nodes[name] ? t('nodes.' + name) : '')))),
+      h('p', { class: 'su-note' }, t('comfy_missing_note'))) : null) : null;
+  body(
+    h('h2', null, t('comfy_title')),
+    h('p', { class: 'su-lead' }, t('comfy_lead')),
+    h('div', { class: 'choices ch-choices' },
+      h('div', { class: 'ch-group' },
+        choiceRow(existing, !f, t('comfy_existing'), note, pick, () => { chooseExisting(f); stepComfy(); }),
+        comfyProblem ? h('p', { class: 'su-help bad ch-problem' }, comfyProblem) : null,
+        detail),
+      choiceRow(!existing, false, t('comfy_bundled'),
+        t('comfy_bundled_note', { c: info.comfyui, nodes: counts.custom_nodes || 0, official: counts.official || 0, optional: counts.optional || 0 }),
+        h('span', { class: 'size' }, gb(partBytes('comfyui', 'workflows'))), () => { chooseBundled(); stepComfy(); })));
+  actions(grow(), btn(t('cancel'), 'line', closeWindow), btn(t('next'), 'solid', () => stepWhere(), { id: 'btn-next', disabled: existing && !f }));
+}
+
+function stepWhere() {
+  frame(1);
   currentFields = ['install'];
   const counts = info.counts || {};
   body(
     h('h2', null, t('where_title')),
-    h('p', { class: 'su-lead' }, t('where_lead')),
+    h('p', { class: 'su-lead' }, t(form.comfy ? 'where_lead_existing' : 'where_lead')),
     field(t('where_label'), 'install', null, () => {
       const root = form.install.replace(/[\\/]+$/, '');
-      if (!form.libraryEdited) form.library = root + '\\ComfyUI\\ComfyUI\\models';
+      if (!form.libraryEdited && !form.comfy) form.library = root + '\\ComfyUI\\ComfyUI\\models';
       if (!form.dataEdited) form.data = root + '\\data';
     }),
-    h('ul', { class: 'facts' }, h('li', null, t('need', { n: gb(info.bytes) })), h('li', { id: 'facts-free' }, ''), gpuLine()),
+    h('ul', { class: 'facts' }, h('li', null, t('need', { n: gb(info.bytes - (form.comfy ? partBytes('comfyui') : 0)) })), h('li', { id: 'facts-free' }, ''), gpuLine()),
     info.upgrade ? h('p', { class: 'su-note' }, t('upgrade')) : null,
     h('ul', { class: 'su-list' },
       h('li', null, h('span', null, t('part_app', { v: info.version }), h('small', null, t('part_app_note'))), h('span', { class: 'size' }, gb(partBytes('app', 'python')))),
-      h('li', null, h('span', null, t('part_comfy', { c: info.comfyui }), h('small', null, t('part_comfy_note', { nodes: counts.custom_nodes || 0, official: counts.official || 0, optional: counts.optional || 0 }))),
-        h('span', { class: 'size' }, gb(partBytes('comfyui', 'workflows')))),
+      form.comfy
+        ? h('li', null, h('span', null, 'ComfyUI', h('small', null, t('part_comfy_existing', { p: form.comfy }))), h('span', { class: 'size' }, gb(partBytes('workflows'))))
+        : h('li', null, h('span', null, t('part_comfy', { c: info.comfyui }), h('small', null, t('part_comfy_note', { nodes: counts.custom_nodes || 0, official: counts.official || 0, optional: counts.optional || 0 }))),
+          h('span', { class: 'size' }, gb(partBytes('comfyui', 'workflows')))),
       h('li', null, h('span', null, t('part_llm'), h('small', null, t('part_llm_note'))), h('span', { class: 'size' }, gb(partBytes('llm')))),
       partBytes('library') ? h('li', null, h('span', null, t('part_tagger'), h('small', null, 'pixai-tagger-v1.0')), h('span', { class: 'size' }, gb(partBytes('library')))) : null));
-  actions(grow(), btn(t('cancel'), 'line', closeWindow), btn(t('next'), 'solid', () => stepData(), { id: 'btn-next', disabled: true }));
+  actions(btn(t('back'), 'line', () => stepComfy()), grow(), btn(t('cancel'), 'line', closeWindow), btn(t('next'), 'solid', () => stepData(), { id: 'btn-next', disabled: true }));
   recheck();
 }
 
+// The library of an existing ComfyUI is where that ComfyUI reads its models: shown, not changed here.
+function fixedField(label, key, help) {
+  return h('div', { class: 'su-field', 'data-field': key }, h('label', null, label),
+    h('div', { class: 'su-row' }, h('input', { type: 'text', value: form[key], readonly: true, class: 'fixed' })),
+    h('p', { class: 'su-help' }, help), h('p', { class: 'su-help bad', hidden: true }), h('p', { class: 'su-help warn', hidden: true }));
+}
+
 function stepData() {
-  frame(1);
+  frame(2);
   currentFields = ['install', 'library', 'data'];
   const inbox = info.inbox || { files: 0 };
   body(
     h('h2', null, t('data_title')),
     h('p', { class: 'su-lead' }, t('data_lead')),
-    field(t('library_label'), 'library', t('library_help'), () => { form.libraryEdited = true; }),
+    form.comfy ? fixedField(t('library_label'), 'library', t('library_fixed'))
+      : field(t('library_label'), 'library', t('library_help'), () => { form.libraryEdited = true; }),
     field(t('data_label'), 'data', t('data_help'), () => { form.dataEdited = true; }),
     h('p', { class: 'su-note', html: inbox.files ? th('inbox_some', { n: inbox.files, size: gb(inbox.bytes) }) : t('inbox_none') }));
   actions(btn(t('back'), 'line', () => stepWhere()), grow(), btn(t('cancel'), 'line', closeWindow),
@@ -345,7 +462,7 @@ async function startInstall() {
   stepInstalling();
   busy = true;
   try {
-    await call('install', { install: form.install, library: form.library, data: form.data, lang: LANG ? 'en' : 'zh' });
+    await call('install', { install: form.install, library: form.library, data: form.data, comfy: form.comfy, lang: LANG ? 'en' : 'zh' });
   } catch (e) {
     busy = false;
     stepFailed(e.code, e.detail);
@@ -353,7 +470,7 @@ async function startInstall() {
 }
 
 function stepInstalling() {
-  frame(2);
+  frame(3);
   $('head-count').textContent = '0%';
   const now = h('span', null, t('unpacking', { part: 'Model Depot' }));
   const pct = h('span', { class: 'n' }, '0%');
@@ -380,9 +497,9 @@ function stepInstalling() {
 let onProgress = () => {};
 
 function stepDone() {
-  frame(3);
+  frame(4);
   const open = h('input', { type: 'checkbox', checked: true });
-  body(h('h2', null, t('done_title')), h('p', { class: 'su-lead' }, t('done_lead')),
+  body(h('h2', null, t('done_title')), h('p', { class: 'su-lead' }, t(form.comfy ? 'done_lead_existing' : 'done_lead')),
     h('label', { class: 'su-tick opt-check' }, open, t('open_now')),
     h('p', { class: 'su-note', style: 'margin-top:18px' }, t('done_note')));
   actions(grow(), btn(t('finish'), 'solid', async () => {
@@ -392,7 +509,7 @@ function stepDone() {
 }
 
 function stepFailed(code, detail, cancelled) {
-  frame(2);
+  frame(3);
   $('head-count').textContent = '';
   body(h('h2', null, t(cancelled ? 'cancelled_title' : 'failed_title')),
     cancelled ? null : h('p', { class: 'su-note bad' }, t('problem.' + (WORDS.problem[code] ? code : 'failed'), { detail: detail || code })),
@@ -405,9 +522,9 @@ function stepRemove() {
   frame(0);
   const k = info.kept;
   const row = (label, path) => h('li', null, h('span', { class: 'what' }, label), h('span', { class: 'path' }, path));
-  body(h('h2', null, t('remove_title')), h('p', { class: 'su-lead' }, t('remove_lead')),
+  body(h('h2', null, t('remove_title')), h('p', { class: 'su-lead' }, t(k.comfy_external ? 'remove_lead_existing' : 'remove_lead')),
     h('ul', { class: 'su-list kept' }, row(t('kept_library'), k.library), row(t('kept_data'), k.data), row(t('kept_inbox'), k.inbox),
-      row(t('kept_comfy'), t('kept_comfy_path', { p: k.comfy_user }))));
+      k.comfy_external ? row('ComfyUI', k.comfy_external) : row(t('kept_comfy'), t('kept_comfy_path', { p: k.comfy_user }))));
   actions(grow(), btn(t('cancel'), 'line', closeWindow), btn(t('uninstall'), 'solid', async () => {
     stepRemoving();
     busy = true;
@@ -456,24 +573,30 @@ async function start() {
   document.documentElement.lang = LANG ? 'en' : 'zh-CN';
   if (UNINSTALL) { stepRemove(); return; }
   Object.assign(form, info.defaults);
+  // an existing ComfyUI is offered first; an update keeps the choice the installation made
+  const c = info.comfy || { found: [], own: true };
+  if (c.found.length && (!info.upgrade || !c.own)) chooseExisting(c.found[0]);
+  else { comfyFound = c.found[0] || null; form.comfy = ''; }
   const step = params.get('step');
   if (DEMO && step) Demo.show(step);
-  else stepWhere();
+  else stepComfy();
 }
 
 // ---- the sample answers of ?demo ----------------------------------------------------------------------------------
 const Demo = {
   info: {
-    mode: 'install', lang: 'zh', version: '0.6.0', comfyui: '0.37.0', upgrade: false,
+    mode: 'install', lang: 'zh', version: '0.6.1', comfyui: '0.37.0', upgrade: false,
     parts: [{ name: 'app', bytes: 52e6 }, { name: 'python', bytes: 40e6 }, { name: 'llm', bytes: 700e6 }, { name: 'comfyui', bytes: 6.2e9 },
       { name: 'library', bytes: 1.95e9 }, { name: 'workflows', bytes: 1e6 }],
-    bytes: 8.94e9, counts: { custom_nodes: 11, official: 7, optional: 20 },
+    bytes: 8.94e9, counts: { custom_nodes: 12, official: 7, optional: 20 },
+    comfy: { own: true, found: [{ path: 'D:\\ComfyUI_windows_portable', version: '0.37.0', older: false,
+      models: 'D:\\ComfyUI_windows_portable\\ComfyUI\\models', nodes: 12, missing: [] }] },
     defaults: { install: 'D:\\Model Depot', library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data' },
     gpu: { name: 'NVIDIA GeForce RTX 5070 Ti', driver: '616.92', ok: true, problem: '' },
     inbox: { path: 'E:\\Model Depot Setup\\models', files: 6, bytes: 41.0 * 1024 ** 3 },
   },
   call(cmd, args) {
-    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.0', install: 'D:\\Model Depot',
+    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.1', install: 'D:\\Model Depot',
       kept: { library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data', inbox: 'D:\\Model Depot\\models',
         comfy_user: 'D:\\Model Depot\\ComfyUI\\ComfyUI' } } : this.info);
     if (cmd === 'check') {
@@ -481,18 +604,27 @@ const Demo = {
       return Promise.resolve({ install: args.install, library: args.library, data: args.data, need: this.info.bytes, free: 193 * 1024 ** 3,
         problems: [], warnings: warn });
     }
+    if (cmd === 'comfy') {
+      if (!/comfy/i.test(args.path)) return Promise.reject(Object.assign(new Error('not_comfyui'), { code: 'not_comfyui', detail: args.path }));
+      return Promise.resolve({ path: args.path.replace(/[\\/]+$/, ''), version: '0.36.2', older: true, models: args.path.replace(/[\\/]+$/, '') + '\\ComfyUI\\models',
+        nodes: 12, missing: ['ComfyUI-KJNodes', 'ComfyUI-PixAI-Tagger', 'seedvr2_videoupscaler'] });
+    }
     if (cmd === 'list') return Promise.resolve({ path: args.path || '', parent: '', dirs: [{ name: 'Model Depot', path: 'D:\\Model Depot' }, { name: 'Games', path: 'D:\\Games' }] });
     return Promise.resolve(true);
   },
   show(step) {
-    if (step === 'data') stepData();
+    if (step === 'comfy-missing') { chooseExisting({ path: 'E:\\AI\\ComfyUI_windows_portable', version: '0.36.2', older: true,
+      models: 'E:\\AI\\ComfyUI_windows_portable\\ComfyUI\\models', nodes: 12, missing: ['ComfyUI-KJNodes', 'ComfyUI-PixAI-Tagger', 'seedvr2_videoupscaler'] }); stepComfy(); }
+    else if (step === 'comfy-none') { comfyFound = null; chooseBundled(); stepComfy(); }
+    else if (step === 'where') stepWhere();
+    else if (step === 'data') stepData();
     else if (step === 'installing') { stepInstalling(); onProgress({ stage: 'unpack', part: 'comfyui', done: 4.2e9, total: 8.94e9, elapsed: 72 }); busy = true; }
     else if (step === 'done') stepDone();
     else if (step === 'failed') stepFailed('comfyui_running', 'python.exe (1234)');
     else if (step === 'cancel') { this.show('installing'); onEvent({ event: 'close-request' }); }
     else if (step === 'old') { this.info.gpu = { name: 'NVIDIA GeForce RTX 3060', driver: '551.86', ok: false, problem: 'old_driver' }; stepData(); startInstall(); }
     else if (step === 'picker') { stepWhere(); pickFolder('D:\\Model Depot'); }
-    else stepWhere();
+    else stepComfy();
   },
 };
 

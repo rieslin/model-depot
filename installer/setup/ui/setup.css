@@ -67,5 +67,29 @@ body { background: var(--paper); }
 .su-actions .btn { min-width: 108px; min-height: 42px; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* the ComfyUI step: the version rows of the download drawer as two choices; the chosen existing ComfyUI opens a stock
+   panel under its row with its facts and the custom nodes it lacks */
+.ch-choices { display: grid; margin-top: 4px; }
+.ch-choices .choice { grid-template-columns: 16px minmax(0, 1fr) auto; min-height: 56px; cursor: pointer; }
+.ch-choices .choice:not(.off):not(.on):hover { background: var(--row-hover); }
+.ch-choices .choice:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; }
+.ch-choices .ch-title { display: block; font-size: 14px; font-weight: 700; }
+.ch-choices .ch-note { display: block; margin-top: 3px; font-size: 12.5px; color: var(--ink-3); overflow-wrap: anywhere; }
+.ch-choices .size { font: 600 13px/1 var(--display); letter-spacing: 0.06em; color: var(--ink-2); white-space: nowrap; }
+.ch-choices .choice.off { cursor: default; }
+.ch-choices .choice.off .ch-title { color: var(--ink-3); }
+.ch-choices .choice.off .box { border-color: var(--ink-4); }
+.ch-group + .choice { border-top: 0; }
+.ch-btn { min-width: 0; min-height: 32px; padding: 4px 14px; font-size: 13px; }
+.ch-problem { margin: 0; padding: 6px 12px 6px 38px; border: 1px solid var(--rule); border-top: 0; background: var(--stock); }
+.ch-detail { padding: 2px 12px 12px 38px; border: 1px solid var(--rule); border-top: 0; background: var(--stock); }
+.ch-detail .facts { margin-top: 8px; }
+.ch-missing { margin-top: 10px; }
+.ch-missing .su-list { margin-top: 0; background: var(--paper); }
+.ch-missing .su-list li { grid-template-columns: 15em minmax(0, 1fr); align-items: center; padding: 5px 12px; }
+.ch-missing .su-list li small { margin: 0; }
+.ch-missing .su-note { margin-top: 8px; font-size: 12.5px; }
+.su-field input.fixed { color: var(--ink-2); background: var(--paper); }
+
 dialog.confirm.ask { width: min(440px, 92vw); }
 dialog.confirm .confirm-actions .btn { min-height: 42px; }

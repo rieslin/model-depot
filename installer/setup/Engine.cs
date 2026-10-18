@@ -9,7 +9,9 @@
 //   models\                 model files to sort into the library once Model Depot runs
 //
 // Installed (docs\安装包对接说明.md): <install>\app, python, llm\llama.cpp, ComfyUI, models, data,
-// uninstall; the model library where the user chose. The places are kept in <install>\app\install.json and under
+// uninstall; the model library where the user chose. With a portable ComfyUI already on the computer, that one is used
+// instead of the bundled copy: nothing of it changes but the workflows added in a "Model Depot" folder of its workflow
+// list and the bundled models its library lacks. The places are kept in <install>\app\install.json and under
 // HKCU\Software\Model Depot; Windows's list of programs finds the uninstaller under HKCU\...\Uninstall\ModelDepot.
 // Everything is for the user who runs the setup: no administrator rights.
 using System;
@@ -79,12 +81,14 @@ namespace ModelDepotSetup
         public object Info()
         {
             var parts = Parts.Select(p => new Dictionary<string, object> { { "name", p["name"] }, { "bytes", p["bytes"] } }).ToList();
-            var defaults = Existing() ?? Defaults(BestDrive());
+            var existing = Existing();
+            var defaults = existing ?? Defaults(BestDrive());
             return new Dictionary<string, object>
             {
                 { "mode", "install" }, { "lang", Lang }, { "version", Manifest["version"] }, { "comfyui", Manifest["comfyui"] },
                 { "parts", parts }, { "bytes", BytesOf(t => true) }, { "defaults", defaults }, { "gpu", Graphics() },
-                { "inbox", Inbox(Path.Combine(exeDir, "models")) }, { "upgrade", Existing() != null },
+                { "inbox", Inbox(Path.Combine(exeDir, "models")) }, { "upgrade", existing != null },
+                { "comfy", new Dictionary<string, object> { { "found", FindComfy(existing) }, { "own", existing == null || OwnComfy(existing) } } },
             };
         }
 
@@ -113,8 +117,150 @@ namespace ModelDepotSetup
                     { "install", install },
                     { "library", key.GetValue("LibraryDir") as string ?? Path.Combine(install, "ComfyUI", "ComfyUI", "models") },
                     { "data", key.GetValue("DataDir") as string ?? Path.Combine(install, "data") },
+                    { "comfy", key.GetValue("ComfyUIDir") as string ?? Path.Combine(install, "ComfyUI") },
                 };
             }
+        }
+
+        static string Norm(string path)
+        {
+            try { return Path.GetFullPath(path).TrimEnd('\\'); }
+            catch { return path ?? ""; }
+        }
+
+        static bool OwnComfy(Dictionary<string, object> existing) =>
+            string.Equals(Norm((string)existing["comfy"]), Norm(Path.Combine((string)existing["install"], "ComfyUI")), StringComparison.OrdinalIgnoreCase);
+
+        // ---- a ComfyUI already on the computer ---------------------------------------------------------------------------
+        // A portable ComfyUI: <root>\ComfyUI\folder_paths.py (what Model Depot itself looks for, depot\comfy.py) beside
+        // <root>\python_embeded\python.exe. Its ComfyUI folder, picked by hand, stands for the same one.
+        static string PortableRoot(string folder)
+        {
+            try
+            {
+                folder = Path.GetFullPath((folder ?? "").Trim().Trim('"')).TrimEnd('\\');
+                foreach (var root in new[] { folder, Path.GetDirectoryName(folder) })
+                    if (!string.IsNullOrEmpty(root) && File.Exists(Path.Combine(root, "ComfyUI", "folder_paths.py")) &&
+                        File.Exists(Path.Combine(root, "python_embeded", "python.exe")))
+                        return root;
+            }
+            catch { }
+            return null;
+        }
+
+        // The custom nodes the package's ComfyUI carries, by folder name (written by installer\build.py).
+        List<string> NodeNames => Manifest.TryGetValue("custom_node_names", out var v) && v is System.Collections.ArrayList list
+            ? list.Cast<object>().Select(o => o.ToString()).ToList() : new List<string>();
+
+        // Custom nodes installed by hand keep their repository's name; ComfyUI Manager's registry writes it in lower case
+        // and may drop the "ComfyUI" in it: compared without either.
+        static string NodeKey(string name) =>
+            Regex.Replace(Regex.Replace(name.ToLowerInvariant(), "comfyui", ""), "[^a-z0-9]", "");
+
+        // Where that ComfyUI reads its models: --models-directory (or --base-directory) in its launcher, else its own folder.
+        static string ModelsOf(string root)
+        {
+            var scripts = new[] { "run_nvidia_gpu.bat", "run_nvidia_gpu_fast_fp16_accumulation.bat", "run_cpu.bat" }
+                .Select(n => Path.Combine(root, n)).Where(File.Exists).Concat(Directory.GetFiles(root, "*.bat"));
+            foreach (var bat in scripts.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                string text;
+                try { text = File.ReadAllText(bat, Encoding.Default); } catch { continue; }
+                if (!text.Contains("main.py")) continue;
+                var m = Regex.Match(text, "--(models|base)-directory(?:=|\\s+)(?:\"([^\"]+)\"|(\\S+))");
+                if (!m.Success) continue;
+                var dir = m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value;
+                if (!Path.IsPathRooted(dir)) dir = Path.Combine(root, dir);
+                return m.Groups[1].Value == "base" ? Path.Combine(dir, "models") : dir;
+            }
+            return Path.Combine(root, "ComfyUI", "models");
+        }
+
+        static bool Older(string version, string than)
+        {
+            int[] Parse(string s) => Regex.Matches(s ?? "", "\\d+").Cast<Match>().Select(m => int.Parse(m.Value, CultureInfo.InvariantCulture)).ToArray();
+            var a = Parse(version);
+            var b = Parse(than);
+            if (a.Length == 0 || b.Length == 0) return false;
+            for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
+            {
+                int x = i < a.Length ? a[i] : 0, y = i < b.Length ? b[i] : 0;
+                if (x != y) return x < y;
+            }
+            return false;
+        }
+
+        // What the page shows of one: {path, version, older, models, nodes, missing: [folder names]}.
+        Dictionary<string, object> Comfy(string root)
+        {
+            var app = Path.Combine(root, "ComfyUI");
+            var version = "";
+            try
+            {
+                var m = Regex.Match(File.ReadAllText(Path.Combine(app, "comfyui_version.py")), "__version__\\s*=\\s*[\"']([^\"']+)");
+                if (m.Success) version = m.Groups[1].Value;
+            }
+            catch { }
+            var present = new HashSet<string>();
+            try
+            {
+                foreach (var d in Directory.GetDirectories(Path.Combine(app, "custom_nodes")))
+                    if (!d.EndsWith(".disabled", StringComparison.OrdinalIgnoreCase)) present.Add(NodeKey(Path.GetFileName(d)));
+            }
+            catch { }
+            var bundled = NodeNames;
+            return new Dictionary<string, object>
+            {
+                { "path", root }, { "version", version }, { "older", Older(version, Manifest["comfyui"] as string) }, { "models", ModelsOf(root) },
+                { "nodes", bundled.Count }, { "missing", bundled.Where(n => !present.Contains(NodeKey(n))).ToList() },
+            };
+        }
+
+        public object InspectComfy(string folder)
+        {
+            var root = PortableRoot(folder);
+            if (root == null) throw new SetupProblem("not_comfyui", folder);
+            return Comfy(root);
+        }
+
+        // Portable ComfyUIs in the usual places: two levels below each fixed drive and the user's own folders. The one an
+        // earlier installation used comes first; the bundled copy of an earlier installation is not offered.
+        List<Dictionary<string, object>> FindComfy(Dictionary<string, object> existing)
+        {
+            var roots = new List<string>();
+            void Consider(string dir)
+            {
+                var root = PortableRoot(dir);
+                if (root != null && !roots.Contains(root, StringComparer.OrdinalIgnoreCase)) roots.Add(root);
+            }
+            string ownCopy = null;
+            if (existing != null)
+            {
+                if (OwnComfy(existing)) ownCopy = Path.Combine((string)existing["install"], "ComfyUI");
+                else Consider((string)existing["comfy"]);
+            }
+            var skip = new[] { "Windows", "Program Files", "Program Files (x86)", "ProgramData", "$Recycle.Bin", "System Volume Information", "Recovery" };
+            IEnumerable<string> Children(string dir)
+            {
+                try
+                {
+                    return new DirectoryInfo(dir).EnumerateDirectories()
+                        .Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0 && !skip.Contains(d.Name, StringComparer.OrdinalIgnoreCase))
+                        .Select(d => d.FullName).Take(400).ToList();
+                }
+                catch { return new string[0]; }
+            }
+            var places = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady).Select(d => d.RootDirectory.FullName).ToList();
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            places.AddRange(new[] { home, Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Path.Combine(home, "Downloads") });
+            foreach (var place in places.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var child in Children(place))
+                {
+                    Consider(child);
+                    if (PortableRoot(child) == null) foreach (var grandchild in Children(child)) Consider(grandchild);
+                }
+            return roots.Where(r => ownCopy == null || !string.Equals(r, ownCopy, StringComparison.OrdinalIgnoreCase)).Select(Comfy).ToList();
         }
 
         // The NVIDIA card and its driver, from nvidia-smi: {name, driver, ok, problem: "" | "no_nvidia" | "old_driver"}.
@@ -161,10 +307,13 @@ namespace ModelDepotSetup
             catch { return null; }
         }
 
-        public object Check(string install, string library, string data)
+        public object Check(string install, string library, string data, string comfy)
         {
             var problems = new List<object>();
             var warnings = new List<object>();
+            bool external = !string.IsNullOrWhiteSpace(comfy);
+            if (external && PortableRoot(comfy) == null)
+                problems.Add(new Dictionary<string, object> { { "field", "comfy" }, { "code", "not_comfyui" } });
             var places = new Dictionary<string, string> { { "install", Clean(install) }, { "library", Clean(library) }, { "data", Clean(data) } };
             var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             var programFiles = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -185,7 +334,7 @@ namespace ModelDepotSetup
                 if (p.Any(ch => ch > 127))
                     warnings.Add(new Dictionary<string, object> { { "field", kv.Key }, { "code", "non_ascii" } });
             }
-            long program = BytesOf(t => t != "library"), lib = BytesOf(t => t == "library");
+            long program = BytesOf(t => t != "library" && !(external && t == "comfyui")), lib = BytesOf(t => t == "library");
             var need = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             void Add(string path, long n)
             {
@@ -270,7 +419,10 @@ namespace ModelDepotSetup
         }
 
         // ---- installing ------------------------------------------------------------------------------------------------------
-        static string Target(string target, string install, string library)
+        // An existing ComfyUI gets the workflows in a folder of their own, beside the user's.
+        const string WorkflowFolder = "Model Depot";
+
+        static string Target(string target, string install, string library, string external)
         {
             switch (target)
             {
@@ -279,22 +431,26 @@ namespace ModelDepotSetup
                 case "llm": return Path.Combine(install, "llm", "llama.cpp");
                 case "comfyui": return Path.Combine(install, "ComfyUI");
                 case "library": return library;
-                case "workflows": return Path.Combine(install, "ComfyUI", "ComfyUI", "user", "default", "workflows");
+                case "workflows":
+                    return external == null ? Path.Combine(install, "ComfyUI", "ComfyUI", "user", "default", "workflows")
+                        : Path.Combine(external, "ComfyUI", "user", "default", "workflows", WorkflowFolder);
             }
             throw new SetupProblem("bad_payload", target);
         }
 
-        public void Install(string install, string library, string data, string lang, Action<Dictionary<string, object>> report, CancellationToken token)
+        public void Install(string install, string library, string data, string comfy, string lang, Action<Dictionary<string, object>> report, CancellationToken token)
         {
-            var checkResult = (Dictionary<string, object>)Check(install, library, data);
+            var checkResult = (Dictionary<string, object>)Check(install, library, data, comfy);
             if (((List<object>)checkResult["problems"]).Count > 0) throw new SetupProblem("check_failed");
             install = (string)checkResult["install"];
             library = (string)checkResult["library"];
             data = (string)checkResult["data"];
             lang = lang == "en" ? "en" : "zh";
+            // an existing portable ComfyUI: the bundled one is not unpacked, and nothing of the existing one is replaced
+            var external = string.IsNullOrWhiteSpace(comfy) ? null : PortableRoot(comfy);
 
             StopRunning(install);
-            var parts = Parts;
+            var parts = Parts.Where(p => external == null || (string)p["target"] != "comfyui").ToList();
             long total = parts.Sum(p => Long(p["bytes"])), before = 0;
             var made = new List<string>();      // what this run made, to take away again if it stops
             bool installMade = !Directory.Exists(install);
@@ -306,7 +462,7 @@ namespace ModelDepotSetup
                 foreach (var part in parts)
                 {
                     token.ThrowIfCancellationRequested();
-                    var dest = Target((string)part["target"], install, library);
+                    var dest = Target((string)part["target"], install, library, external);
                     if (!Directory.Exists(dest) && part["target"] as string != "library") made.Add(dest);
                     Directory.CreateDirectory(dest);
                     long size = Long(part["bytes"]);
@@ -323,7 +479,7 @@ namespace ModelDepotSetup
                 }
                 token.ThrowIfCancellationRequested();
                 report(new Dictionary<string, object> { { "stage", "configure" }, { "done", total }, { "total", total }, { "elapsed", (DateTime.UtcNow - started).TotalSeconds } });
-                Configure(install, library, data, lang, total);
+                Configure(install, library, data, lang, total, external);
             }
             catch (Exception ex) when (update)
             {
@@ -380,14 +536,76 @@ namespace ModelDepotSetup
             progress(100);
         }
 
-        void Configure(string install, string library, string data, string lang, long total)
+        void Configure(string install, string library, string data, string lang, long total, string external)
         {
-            var comfy = Path.Combine(install, "ComfyUI");
-            var app = Path.Combine(comfy, "ComfyUI");
-            var defaultLibrary = Path.Combine(app, "models");
+            bool own = external == null;
+            var comfy = external ?? Path.Combine(install, "ComfyUI");
             Directory.CreateDirectory(data);
             Directory.CreateDirectory(Path.Combine(install, "models"));
             Directory.CreateDirectory(Path.Combine(install, "llm", "models"));
+            if (own) ConfigureComfy(comfy, library, lang);
+
+            // what Model Depot reads next to run.py (paths.install_info), and where another setup finds this one
+            var info = new Dictionary<string, object>
+            {
+                { "version", Manifest["version"] }, { "install_dir", install }, { "data_dir", data },
+                { "python", Path.Combine(install, "python", "python.exe") }, { "comfyui_dir", comfy }, { "comfyui_own", own },
+                { "models_dir", library }, { "llm_dir", Path.Combine(install, "llm") }, { "inbox", new[] { Path.Combine(install, "models") } },
+                { "inbox_once", Directory.Exists(Path.Combine(exeDir, "models")) ? new[] { Path.Combine(exeDir, "models") } : new string[0] },
+                { "language", lang },
+            };
+            File.WriteAllText(Path.Combine(install, "app", "install.json"), json.Serialize(info), new UTF8Encoding(false));
+
+            // the uninstaller: this exe and its page
+            var uninstall = Path.Combine(install, "uninstall");
+            Directory.CreateDirectory(uninstall);
+            var self = Process.GetCurrentProcess().MainModule.FileName;
+            File.Copy(self, Path.Combine(uninstall, "ModelDepotSetup.exe"), true);
+            CopyTree(UiFolder, Path.Combine(uninstall, "ui"));
+
+            var exe = Path.Combine(install, "app", "desktop", "app", "ModelDepot.exe");
+            var comfyBat = Path.Combine(comfy, "run_nvidia_gpu.bat");
+            using (var key = Registry.CurrentUser.CreateSubKey(RegKey))
+            {
+                key.SetValue("InstallDir", install);
+                key.SetValue("ComfyUIDir", comfy);
+                key.SetValue("ComfyUIOwn", own ? 1 : 0, RegistryValueKind.DWord);
+                key.SetValue("LibraryDir", library);
+                key.SetValue("LlmDir", Path.Combine(install, "llm"));
+                key.SetValue("DataDir", data);
+                key.SetValue("Version", (string)Manifest["version"]);
+            }
+            using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
+            {
+                key.SetValue("DisplayName", "Model Depot");
+                key.SetValue("DisplayVersion", (string)Manifest["version"]);
+                key.SetValue("Publisher", "Model Depot");
+                key.SetValue("InstallLocation", install);
+                key.SetValue("DisplayIcon", exe);
+                key.SetValue("UninstallString", "\"" + Path.Combine(uninstall, "ModelDepotSetup.exe") + "\" /uninstall");
+                key.SetValue("EstimatedSize", (int)Math.Min(int.MaxValue, total / 1024), RegistryValueKind.DWord);
+                key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+            }
+
+            // an existing ComfyUI is started the way its owner already starts it: no shortcut of ours
+            foreach (var folder in new[] { Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), StartMenu })
+            {
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    Shortcut(Path.Combine(folder, "Model Depot.lnk"), exe, "", Path.GetDirectoryName(exe), exe);
+                    if (own) Shortcut(Path.Combine(folder, "ComfyUI.lnk"), comfyBat, "", comfy, Path.Combine(comfy, "python_embeded", "python.exe"));
+                }
+                catch (Exception) { }
+            }
+        }
+
+        // The bundled ComfyUI: the library where the user put it, the SeedVR2 folder, the page in the setup's language.
+        void ConfigureComfy(string comfy, string library, string lang)
+        {
+            var app = Path.Combine(comfy, "ComfyUI");
+            var defaultLibrary = Path.Combine(app, "models");
             Directory.CreateDirectory(defaultLibrary);
 
             // ComfyUI reads the library from where the user put it
@@ -417,59 +635,6 @@ namespace ModelDepotSetup
             catch { settings = new Dictionary<string, object>(); }
             settings["Comfy.Locale"] = lang;
             File.WriteAllText(settingsPath, json.Serialize(settings), new UTF8Encoding(false));
-
-            // what Model Depot reads next to run.py (paths.install_info), and where another setup finds this one
-            var info = new Dictionary<string, object>
-            {
-                { "version", Manifest["version"] }, { "install_dir", install }, { "data_dir", data },
-                { "python", Path.Combine(install, "python", "python.exe") }, { "comfyui_dir", comfy }, { "models_dir", library },
-                { "llm_dir", Path.Combine(install, "llm") }, { "inbox", new[] { Path.Combine(install, "models") } },
-                { "inbox_once", Directory.Exists(Path.Combine(exeDir, "models")) ? new[] { Path.Combine(exeDir, "models") } : new string[0] },
-                { "language", lang },
-            };
-            File.WriteAllText(Path.Combine(install, "app", "install.json"), json.Serialize(info), new UTF8Encoding(false));
-
-            // the uninstaller: this exe and its page
-            var uninstall = Path.Combine(install, "uninstall");
-            Directory.CreateDirectory(uninstall);
-            var self = Process.GetCurrentProcess().MainModule.FileName;
-            File.Copy(self, Path.Combine(uninstall, "ModelDepotSetup.exe"), true);
-            CopyTree(UiFolder, Path.Combine(uninstall, "ui"));
-
-            var exe = Path.Combine(install, "app", "desktop", "app", "ModelDepot.exe");
-            var comfyBat = Path.Combine(comfy, "run_nvidia_gpu.bat");
-            using (var key = Registry.CurrentUser.CreateSubKey(RegKey))
-            {
-                key.SetValue("InstallDir", install);
-                key.SetValue("ComfyUIDir", comfy);
-                key.SetValue("LibraryDir", library);
-                key.SetValue("LlmDir", Path.Combine(install, "llm"));
-                key.SetValue("DataDir", data);
-                key.SetValue("Version", (string)Manifest["version"]);
-            }
-            using (var key = Registry.CurrentUser.CreateSubKey(UninstallKey))
-            {
-                key.SetValue("DisplayName", "Model Depot");
-                key.SetValue("DisplayVersion", (string)Manifest["version"]);
-                key.SetValue("Publisher", "Model Depot");
-                key.SetValue("InstallLocation", install);
-                key.SetValue("DisplayIcon", exe);
-                key.SetValue("UninstallString", "\"" + Path.Combine(uninstall, "ModelDepotSetup.exe") + "\" /uninstall");
-                key.SetValue("EstimatedSize", (int)Math.Min(int.MaxValue, total / 1024), RegistryValueKind.DWord);
-                key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-                key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-            }
-
-            foreach (var folder in new[] { Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), StartMenu })
-            {
-                try
-                {
-                    Directory.CreateDirectory(folder);
-                    Shortcut(Path.Combine(folder, "Model Depot.lnk"), exe, "", Path.GetDirectoryName(exe), exe);
-                    Shortcut(Path.Combine(folder, "ComfyUI.lnk"), comfyBat, "", comfy, Path.Combine(comfy, "python_embeded", "python.exe"));
-                }
-                catch (Exception) { }
-            }
         }
 
         static string StartMenu => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Model Depot");
@@ -542,20 +707,25 @@ namespace ModelDepotSetup
         public object UninstallInfo(string install)
         {
             var info = ReadInfo(install);
+            bool own = OwnComfyInfo(info);
+            var kept = new Dictionary<string, object>
+            {
+                { "library", info.TryGetValue("models_dir", out var l) ? l : Path.Combine(install, "ComfyUI", "ComfyUI", "models") },
+                { "data", info.TryGetValue("data_dir", out var d) ? d : Path.Combine(install, "data") },
+                { "inbox", Path.Combine(install, "models") },
+            };
+            if (own) kept["comfy_user"] = Path.Combine(install, "ComfyUI", "ComfyUI");
+            else kept["comfy_external"] = info["comfyui_dir"];
             return new Dictionary<string, object>
             {
                 { "mode", "uninstall" }, { "lang", Lang }, { "version", info.TryGetValue("version", out var v) ? v : "" },
-                { "install", install },
-                { "kept", new Dictionary<string, object>
-                    {
-                        { "library", info.TryGetValue("models_dir", out var l) ? l : Path.Combine(install, "ComfyUI", "ComfyUI", "models") },
-                        { "data", info.TryGetValue("data_dir", out var d) ? d : Path.Combine(install, "data") },
-                        { "inbox", Path.Combine(install, "models") },
-                        { "comfy_user", Path.Combine(install, "ComfyUI", "ComfyUI") },
-                    }
-                },
+                { "install", install }, { "kept", kept },
             };
         }
+
+        // An installation from before the choice of ComfyUI always has its own.
+        static bool OwnComfyInfo(Dictionary<string, object> info) =>
+            !(info.TryGetValue("comfyui_own", out var own) && own is bool b && !b && info.TryGetValue("comfyui_dir", out var dir) && dir is string);
 
         Dictionary<string, object> ReadInfo(string install)
         {
@@ -566,6 +736,8 @@ namespace ModelDepotSetup
         public void Uninstall(string install, Action<Dictionary<string, object>> report, CancellationToken token)
         {
             if (string.IsNullOrEmpty(install) || !Directory.Exists(install)) throw new SetupProblem("not_installed", install);
+            // only <install>\ComfyUI is ever removed below: an existing ComfyUI the installation used stays as it is
+            bool ownComfy = OwnComfyInfo(ReadInfo(install));
             StopRunning(install);
             var comfy = Path.Combine(install, "ComfyUI");
             var app = Path.Combine(comfy, "ComfyUI");
@@ -585,7 +757,7 @@ namespace ModelDepotSetup
                 done++;
             }
             foreach (var folder in new[] { Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), StartMenu })
-                foreach (var name in new[] { "Model Depot.lnk", "ComfyUI.lnk" })
+                foreach (var name in ownComfy ? new[] { "Model Depot.lnk", "ComfyUI.lnk" } : new[] { "Model Depot.lnk" })
                     TryDelete(Path.Combine(folder, name));
             TryDelete(StartMenu);
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
