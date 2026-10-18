@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Model Depot</title>
+<!--FONTS-->
+<!--SHELL_CSS-->
+<style>
+/* C · Index. The library's own frame from the first moment: the top bar as the page first paints it, and below it the
+   two black structures of the roster: the base-model index with its red diamond, and a group block. The diamond walks
+   down the index one base model at a time (the index marker's slide: 0.34 s, the app's ease); the item it reaches
+   lights, and the group block reads out that base model's code in the display face, with the composition line under
+   it. No counts are shown: the program has not read the library yet. When it is ready, nothing travels: the index
+   folds up, the block is wiped away to the right, and the bar stays where the page will draw it. */
+.stage { position: fixed; left: 0; right: 0; top: 76px; bottom: 0; display: grid; place-content: center; justify-items: center; }
+.emblem { display: flex; align-items: center; gap: var(--gut, 20px); }
+.rail { position: relative; width: var(--rw, 106px); background: var(--block); }
+.rail ol { margin: 0; padding: 0; list-style: none; }
+.rail li { display: flex; align-items: center; height: var(--ih, 58px); padding: 0 0 0 var(--ip, 18px); border-bottom: 1px solid var(--block-rule);
+  font: 700 var(--ic, 19px)/1 var(--code); letter-spacing: 0.03em; color: var(--on-block); }
+.rail li:last-child { border-bottom: 0; }
+.dia { position: absolute; top: 0; right: calc(var(--d, 20px) / -2); width: var(--d, 20px); height: var(--d, 20px); margin-top: calc(var(--d, 20px) / -2); will-change: transform; }
+.dia::before { content: ""; position: absolute; inset: 15%; background: var(--red); transform: rotate(45deg); }
+.blk { width: var(--bw, 440px); padding: var(--bp, 22px 28px 20px); background: var(--block); color: var(--on-block); }
+.blk .code { margin: 0; font: 700 var(--D, 62px)/0.84 var(--code); letter-spacing: 0.24em; text-transform: uppercase; white-space: nowrap; }
+.blk .meta { margin: var(--mg, 18px) 0 0; font: 600 var(--mf, 13px)/1.3 var(--code); letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--on-block-meta); white-space: nowrap; }
+.blk .meta .cjk { letter-spacing: 0.04em; }
+.stage > .note { margin-top: var(--ng, 30px); }
+</style>
+</head>
+<body>
+<main class="stage">
+  <div class="emblem">
+    <div class="rail" aria-hidden="true"><ol></ol><i class="dia"></i></div>
+    <div class="blk" aria-hidden="true"><h2 class="code"></h2><p class="meta"></p></div>
+  </div>
+  <!--NOTE-->
+</main>
+<!--SHELL_HTML-->
+<!--SHELL_JS-->
+<script>
+(() => {
+  const L = LOADER;
+  // the base models of the user's library, as its index showed them the last time (the window passes them in
+  // LOADER_FAMILIES: [code, name, architecture]); before the library was ever shown, a few current ones. Codes and
+  // names as web/js/families.js writes them. A short list, as the draft has it, not the whole index: the largest
+  // groups first, at most MAX (the user, 2026-10-08: "只要和之前设计那种列表就可以，别整个都显示出来").
+  const MAX = 7;
+  const GIVEN = (Array.isArray(window.LOADER_FAMILIES) ? window.LOADER_FAMILIES : [])
+    .filter((f) => Array.isArray(f) && typeof f[0] === "string" && f[0] && typeof f[1] === "string").slice(0, MAX);
+  const FAMS = GIVEN.length ? GIVEN : [["KREA2", "Krea 2"], ["ANIMA", "Anima"], ["QWEN", "Qwen-Image"], ["ZIMG", "Z-Image"],
+    ["ILXL", "Illustrious", "SDXL"], ["SDXL", "SDXL"], ["FLUX2", "Flux.2"]];
+  const META = { zh: ["基础模型", "{a} 架构"], en: ["BASE MODEL", "{a} ARCHITECTURE"] }[L.lang];
+  const P = 1.4, T0 = 0.75;                  // a step every 1.4 s; the first once the opening has played
+  const SLIDE = 0.34, OUT = [0.04, 0.17], IN = [0.17, 0.47], META_IN = [0.24, 0.54];
+  const HOLD = 0.08;
+
+  const root = document.documentElement;
+  const rail = document.querySelector(".rail"), list = rail.querySelector("ol"), dia = rail.querySelector(".dia");
+  const blk = document.querySelector(".blk"), code = blk.querySelector(".code"), meta = blk.querySelector(".meta");
+  const note = document.querySelector(".note");
+  let n = FAMS.length, ih = 58, items = [], shown = { code: -1, meta: -1 };
+
+  function layout() {
+    const vw = innerWidth, vh = innerHeight - 76;
+    const k = L.clamp(Math.min(vh / 824, vw / 1440), 0.72, 1.45) * (L.failed ? 0.82 : 1);
+    ih = Math.round(58 * k);
+    n = Math.min(FAMS.length, Math.max(4, Math.floor((vh * (L.failed ? 0.4 : 0.56)) / ih)));
+    const D = L.clamp(68 * k, 40, 96);
+    const set = (v, x) => root.style.setProperty(v, x);
+    set("--rw", `${Math.round(106 * k)}px`); set("--ih", `${ih}px`); set("--ip", `${(18 * k).toFixed(1)}px`); set("--ic", `${(19 * k).toFixed(1)}px`);
+    set("--d", `${(20 * k).toFixed(1)}px`); set("--gut", `${(20 * k).toFixed(1)}px`); set("--bw", `${Math.round(Math.min(480 * k, vw * 0.5))}px`);
+    set("--bp", `${(22 * k).toFixed(1)}px ${(28 * k).toFixed(1)}px ${(20 * k).toFixed(1)}px`); set("--D", `${D.toFixed(1)}px`);
+    set("--mg", `${(18 * k).toFixed(1)}px`); set("--mf", `${L.clamp(13 * k, 11, 17).toFixed(1)}px`); set("--ng", `${(30 * k).toFixed(1)}px`);
+    list.textContent = "";
+    items = FAMS.slice(0, n).map(([c]) => { const li = document.createElement("li"); li.textContent = c; list.append(li); return li; });
+    shown = { code: -1, meta: -1 };
+  }
+
+  function setCode(i) { if (shown.code !== i) { code.textContent = i < 0 ? "" : FAMS[i][0]; shown.code = i; } }
+  function setMeta(i) {
+    if (shown.meta === i) return;
+    shown.meta = i;
+    meta.textContent = "";
+    if (i < 0) return;
+    const [, name, arch] = FAMS[i];
+    const cjk = (s) => { const e = document.createElement("span"); if (/[㐀-鿿]/.test(s)) e.className = "cjk"; e.textContent = s; return e; };
+    meta.append(cjk(META[0]), "  " + name);
+    if (arch) meta.append("  ·  ", cjk(META[1].replace("{a}", arch)));
+  }
+
+  // where the walk is at t: the item now current, the one before it, and how far into the step
+  function walkAt(t) {
+    if (t < T0) return { cur: 0, prev: 0, c: P };
+    const s = Math.floor((t - T0) / P) + 1, c = (t - T0) - (s - 1) * P;
+    return { cur: s % n, prev: (s - 1) % n, c };
+  }
+
+  function paintWalk(w, alpha = 1) {
+    const k = L.EASE(L.ramp(w.c, 0, SLIDE));
+    const y = (L.lerp(w.prev, w.cur, k) + 0.5) * ih;
+    dia.style.transform = `translateY(${y.toFixed(2)}px)`;
+    dia.style.opacity = alpha >= 1 ? "" : alpha.toFixed(3);
+    const lit = L.ramp(w.c, 0.1, 0.22);    // the item reached lights as the diamond arrives (the app's 0.12 s)
+    items.forEach((li, i) => {
+      const a = i === w.cur ? lit : i === w.prev && w.prev !== w.cur ? 1 - lit : 0;
+      li.style.background = a > 0 ? L.mix("#161718", "#34383d", a) : "";
+      li.style.color = a > 0.5 ? "#ffffff" : "";
+    });
+    // the block: the old code is wiped away to the right, the new one read out from the left
+    if (w.c < OUT[1]) {
+      setCode(w.prev); setMeta(w.prev);
+      const x = 100 * L.EASE_IN(L.ramp(w.c, OUT[0], OUT[1]));
+      code.style.clipPath = x > 0 ? `inset(0 0 0 ${x.toFixed(2)}%)` : "";
+      meta.style.clipPath = code.style.clipPath;
+    } else {
+      setCode(w.cur); setMeta(w.cur);
+      L.wipe(code, L.ramp(w.c, IN[0], IN[1]));
+      L.wipe(meta, L.ramp(w.c, META_IN[0], META_IN[1]));
+    }
+  }
+
+  function opening(t) {
+    L.riseSoft(rail, L.ramp(t, 0, 0.34));
+    blk.style.clipPath = t >= 0.4 ? "" : `inset(0 ${(100 * (1 - L.EASE_INOUT(L.ramp(t, 0.08, 0.44)))).toFixed(2)}% 0 0)`;
+    L.rise(note, L.ramp(t, 0.3, 0.56));
+  }
+
+  function handOver(e) {
+    const w = walkAt(L.exitAt);
+    paintWalk({ ...w, c: Math.max(w.c, IN[1] + 0.1) }, 1 - L.ramp(e, 0, 0.1));
+    const x = e - HOLD;
+    // the index folds up into its top edge; the block is wiped away to the right
+    rail.style.clipPath = x <= 0 ? "" : `inset(0 0 ${(100 * L.EASE_INOUT(L.ramp(x, 0.02, 0.28))).toFixed(2)}% 0)`;
+    blk.style.clipPath = x <= 0 ? "" : `inset(0 0 0 ${(100 * L.EASE_INOUT(L.ramp(x, 0, 0.26))).toFixed(2)}%)`;
+  }
+
+  function draw(t, e) {
+    if (e !== null) { handOver(e); return; }
+    rail.style.clipPath = "";
+    opening(t);
+    paintWalk(walkAt(t), L.ramp(t, 0.3, 0.42));
+    if (t < T0) { setCode(0); setMeta(0); L.wipe(code, L.ramp(t, 0.3, 0.6)); L.wipe(meta, L.ramp(t, 0.38, 0.68)); }
+  }
+  // less motion: the first base model current, standing still
+  function still(e) {
+    for (const el of [rail, note]) { el.style.opacity = ""; el.style.transform = ""; }
+    if (e !== null && e !== undefined) {
+      const k = L.ramp(e, 0, 0.16);
+      rail.style.opacity = blk.style.opacity = (1 - k).toFixed(3);
+      return;
+    }
+    blk.style.clipPath = rail.style.clipPath = "";
+    paintWalk({ cur: 0, prev: 0, c: P });
+  }
+  // the program did not start: the index stands with nothing current, the block is empty
+  function failed() {
+    for (const el of [rail, note, blk]) { el.style.opacity = ""; el.style.transform = ""; el.style.clipPath = ""; }
+    items.forEach((li) => { li.style.background = ""; li.style.color = ""; });
+    dia.style.opacity = 0;
+    setCode(-1); setMeta(-1);
+    blk.style.display = "none";
+  }
+
+  L.use({ mark: null, layout, draw, still, failed, hold: HOLD, bar: true });
+})();
+</script>
+</body>
+</html>

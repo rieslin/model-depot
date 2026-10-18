@@ -1,0 +1,83 @@
+/* The loading screen's shared frame: the tokens (web/app.css), the window buttons, the status note, the failure note,
+   and the top bar the screen turns into at the hand-over, drawn as the app's page first paints it (web/index.html and
+   app.css: the paper bar, its 1 px rule, the wordmark over an empty tagline, the window buttons after a 1 px rule). */
+:root {
+  --ground: #e7e8e7; --paper: #f3f3f2; --stock: #f9f9f8; --well: #d6d8d7; --ph: #ecedec; --dots: #bfc1c3;
+  --ink: #161718; --ink-2: #393b3d; --ink-3: #585b5e; --ink-4: #66696c; --rule: #c5c7c8; --rule-soft: #d5d7d6;
+  --block: #161718; --block-lit: #34383d; --block-rule: #2d3033; --block-line: #45484b; --on-block: #f4f4f3;
+  --on-block-2: #a3a6a9; --on-block-meta: #dcdedf; --mid: #55595d;
+  --red: #e60000; --bad: #a30000; --ink-hover: #2b2e31;
+  --mark: "MD Mark", "Chivo", "Segoe UI Black", "Segoe UI", sans-serif;
+  --code: "MD Code", "Anaheim", "Bahnschrift SemiCondensed", "Arial Narrow", sans-serif;
+  --body: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { background: var(--ground); color: var(--ink); font: 400 14px/1.45 var(--body); font-variant-numeric: tabular-nums;
+  user-select: none; -webkit-app-region: drag; app-region: drag; }
+
+/* the name, lettered as the app's top bar letters it */
+.wm { display: block; font: 900 31px/0.86 var(--mark); letter-spacing: 0.01em; white-space: nowrap; color: var(--ink); }
+.wm i { font-style: normal; color: var(--red); }
+
+/* the status note under each composition */
+.note { display: grid; justify-items: center; gap: 5px; text-align: center; }
+.note .msg { font: 400 14px/1.45 var(--body); color: var(--ink-2); }
+.note .msg2 { font: 400 12.5px/1.5 var(--body); color: var(--ink-3); opacity: 0; }
+
+/* window buttons: the app's own (.win-ctl): 46 px wide, as tall as its top bar, a 1 px rule before them */
+.win { position: fixed; top: 0; right: 0; z-index: 30; display: flex; height: 75px; -webkit-app-region: no-drag; app-region: no-drag; }
+.win::before { content: ""; position: absolute; left: -1px; top: 0; bottom: 0; width: 1px; background: var(--rule); opacity: var(--win-rule, 0); }
+.win button { display: grid; place-items: center; width: 46px; height: 100%; padding: 0; border: 0; background: transparent; color: var(--ink-2);
+  cursor: default; transition: background 0.12s, color 0.12s; }
+.win button:hover { background: var(--ink); color: #fff; }
+.win button:active { background: var(--ink-2); color: #fff; }
+.win button.close:hover { background: var(--red); color: #fff; }
+.win button.close:active { background: var(--red); filter: brightness(0.88); }
+.win button:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+.win svg { width: 14px; height: 14px; }
+.win .g-restore, :root[data-max] .win .g-max { display: none; }
+:root[data-max] .win .g-restore { display: block; }
+
+/* the hand-over: the app's top bar as its page first paints it */
+.hand { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+.hand .ground { position: absolute; inset: 0; background: var(--ground); opacity: 0; }
+.hand .bar { position: absolute; left: 0; right: 0; top: 0; height: 76px; display: flex; align-items: center; padding: 0 20px;
+  background: var(--paper); opacity: 0; }
+.hand .bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--rule);
+  transform-origin: 0 0; transform: scaleX(var(--rule-k, 0)); }
+.hand .brand { display: grid; gap: 5px; }
+.hand .wm { opacity: 0; }
+.hand .tag { min-height: 1em; font: 600 11px/1 var(--code); letter-spacing: 0.36em; }
+@media (max-width: 900px) { .hand .wm { font-size: 26px; } .hand .tag { font-size: 10px; } }
+/* a direction that keeps the top bar from the start (C) shows it whole */
+:root[data-bar] .hand .bar, :root[data-bar] .hand .wm { opacity: 1; }
+:root[data-bar] .hand .bar { --rule-k: 1; }
+:root[data-bar] .win { --win-rule: 1; }
+:root[data-wait] .stage { visibility: hidden; }
+.fly { position: fixed; left: 0; top: 0; z-index: 25; margin: 0; transform-origin: 0 0; pointer-events: none; visibility: visible !important; }
+
+/* the failure note: the motion stops, the note says what happened, two buttons */
+.fail { display: none; justify-items: center; gap: 14px; margin-top: 10px; -webkit-app-region: no-drag; app-region: no-drag; }
+:root[data-state="failed"] .fail { display: grid; }
+:root[data-state="failed"] .note .msg { font: 700 19px/1.25 var(--body); color: var(--ink); }
+:root[data-state="failed"] .note .msg2 { display: none; }
+.fail pre { max-width: min(82vw, 780px); max-height: 26vh; overflow: auto; margin: 0; padding: 10px 12px; white-space: pre-wrap; text-align: left;
+  color: var(--ink-2); background: var(--stock); border: 1px solid var(--rule); font: 12px/1.5 Consolas, monospace; user-select: text; }
+.fail .act { display: flex; gap: 10px; }
+.fail button { min-height: 38px; padding: 0 16px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink);
+  font: 600 14px var(--body); cursor: pointer; transition: background 0.12s, color 0.12s; }
+.fail button:hover { background: var(--ink); color: #fff; }
+.fail button.solid { background: var(--ink); color: #fff; }
+.fail button.solid:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+.fail button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* draft controls: only in the drafts, never in the page the app carries */
+.proto { position: fixed; left: 12px; bottom: 12px; z-index: 40; display: flex; gap: 6px; align-items: center; -webkit-app-region: no-drag; app-region: no-drag;
+  font: 600 11px/1 var(--code); letter-spacing: 0.08em; color: var(--ink-4); opacity: 0.6; transition: opacity 0.2s; }
+.proto:hover { opacity: 1; }
+.proto button { height: 26px; padding: 0 9px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); font: 600 12px/1 var(--body); cursor: pointer; }
+.proto button:hover { border-color: var(--ink); color: var(--ink); }
+:root[data-capture] .proto, :root[data-embed] .proto { display: none; }

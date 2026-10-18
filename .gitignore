@@ -1,0 +1,11 @@
+data/
+.venv/
+__pycache__/
+*.pyc
+*.part
+*.tmp
+desktop/obj/
+desktop/bin/
+desktop/loader-src/loader-draft.html
+installer/build.local.json
+installer/setup/bin/

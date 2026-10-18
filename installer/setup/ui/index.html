@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN" class="desktop">
+<head>
+<meta charset="utf-8">
+<title>Model Depot</title>
+<!-- app.css and fonts\ are Model Depot's own, copied here by installer\build.py -->
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="setup.css">
+</head>
+<body>
+<svg class="icons" aria-hidden="true">
+  <symbol id="i-win-min" viewBox="0 0 20 20"><path d="M4 10.5h12" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 20 20"><path d="M2.5 4.5h5.2l1.6 2h8.2v9.5H2.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter"/></symbol>
+</svg>
+<div class="win" id="win">
+  <header class="top">
+    <div class="brand"><span class="wordmark">MODEL DEP<span class="o">O</span>T</span><span class="tagline" id="tagline"></span></div>
+    <span class="spacer"></span>
+    <div class="win-ctl">
+      <button class="win-btn" type="button" id="btn-min"><svg class="i"><use href="#i-win-min"/></svg></button>
+      <button class="win-btn close" type="button" id="btn-close"><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+  </header>
+  <section class="su-head"><h1 id="head-title">SETUP</h1><span class="count" id="head-count"></span><p class="meta" id="head-meta"></p></section>
+  <nav class="su-steps" id="steps"></nav>
+  <main class="su-body" id="body"></main>
+  <footer class="su-actions" id="actions"></footer>
+</div>
+<dialog class="confirm ask" id="ask"></dialog>
+<dialog id="picker"></dialog>
+<script src="setup.js"></script>
+</body>
+</html>

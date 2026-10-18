@@ -1,0 +1,71 @@
+/* The setup window: Model Depot's own surfaces, type and components (app.css), laid out for a 900 x 720 window.
+   The block head is the roster's group head at the drawer's size; the steps are the type bar; fields, buttons, facts
+   and questions are the settings page's and the delete dialog's. */
+html, body { height: 100%; overflow: hidden; }
+body { background: var(--paper); }
+.win { height: 100%; display: grid; grid-template-rows: 64px auto 52px minmax(0, 1fr) auto; background: var(--paper); }
+.win .top { position: static; height: 64px; gap: 18px; padding: 0 0 0 22px; }
+.win .wordmark { font-size: 26px; }
+.win .top .spacer { flex: 1; }
+.win .win-ctl { margin-right: 0; }
+
+.su-head { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; padding: 18px 26px;
+  background: var(--block); color: var(--on-block); }
+.su-head h1 { margin: 0; font: 700 48px/0.84 var(--display); letter-spacing: 0.24em; text-transform: uppercase; }
+.su-head .count { margin-left: 18px; padding-left: 30px; border-left: 1px solid rgb(244 244 243 / 0.42);
+  font: 700 48px/0.84 var(--display); letter-spacing: 0.02em; }
+.su-head .count:empty { display: none; }
+.su-head .meta { grid-column: 1 / -1; margin: 14px 0 0; font: 600 13px/1.3 var(--display); letter-spacing: 0.22em;
+  text-transform: uppercase; color: #dcdedf; }
+.su-head .meta .cjk { letter-spacing: 0.04em; }
+
+.su-steps { display: flex; align-items: stretch; gap: 6px; padding: 0 8px; background: var(--paper); border-bottom: 2px solid var(--ink); }
+.su-steps .type-tab { font-size: 16px; padding: 0 18px; cursor: default; }
+.su-steps .type-tab .n { font-size: 16px; }
+.su-steps .type-tab[aria-pressed="true"]::after { bottom: 8px; }
+.su-steps .type-tab.done { color: var(--ink-2); }
+.su-steps .type-tab:hover { color: var(--ink-3); }
+.su-steps .type-tab[aria-pressed="true"]:hover { color: var(--ink); }
+
+.su-body { padding: 18px 26px 4px; overflow: auto; }
+.su-body h2 { margin: 0 0 6px; font-size: 17px; font-weight: 700; }
+.su-lead { margin: 0 0 12px; font-size: 13.5px; line-height: 1.6; color: var(--ink-3); }
+.su-field { margin: 0 0 12px; }
+.su-field > label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.su-field .su-row { display: flex; gap: 10px; }
+.su-field input[type=text] { flex: 1; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 0;
+  background: var(--stock); font-size: 13.5px; }
+.su-field input[type=text]:focus { outline: none; border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.su-field .btn { min-height: 38px; padding: 4px 16px; }
+.su-help { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.su-help.bad { color: var(--bad); }
+.su-help.warn { color: var(--warn); }
+.su-body .facts { margin-top: 10px; }
+
+.su-list { margin: 14px 0 0; padding: 0; list-style: none; border: 1px solid var(--rule); background: var(--stock); }
+.su-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 7px 12px; font-size: 13.5px; }
+.su-list li + li { border-top: 1px solid var(--rule-soft); }
+.su-list small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }
+.su-list .size { font: 600 13px/1 var(--display); letter-spacing: 0.06em; color: var(--ink-2); }
+.su-list.kept li { grid-template-columns: 9em minmax(0, 1fr); }
+.su-list.kept .what { font-weight: 700; color: var(--ink-2); }
+.su-list.kept .path { font-size: 13px; overflow-wrap: anywhere; }
+
+.su-note { margin: 6px 0 0; padding: 4px 12px; border-left: 1px solid var(--ink); font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.su-note b { font: 700 14px/1 var(--display); letter-spacing: 0.04em; }
+.su-note.bad { color: var(--bad); }
+
+.su-gauge { margin: 4px 0 10px; height: 8px; background: var(--rule-soft); }
+.su-gauge i { display: block; height: 100%; width: 0; background: var(--ink); transition: width 0.5s linear; }
+.su-now { display: flex; justify-content: space-between; gap: 16px; font-size: 13.5px; }
+.su-now .n { font: 600 13px/1.45 var(--display); letter-spacing: 0.06em; color: var(--ink-3); }
+
+.su-tick { display: inline-flex; align-items: center; gap: 10px; margin: 6px 0 0; font-size: 14px; }
+
+.su-actions { display: flex; align-items: center; gap: 10px; padding: 14px 26px 20px; }
+.su-actions .su-grow { flex: 1; }
+.su-actions .btn { min-width: 108px; min-height: 42px; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+dialog.confirm.ask { width: min(440px, 92vw); }
+dialog.confirm .confirm-actions .btn { min-height: 42px; }
