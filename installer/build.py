@@ -323,7 +323,34 @@ def stage_workflows(s):
         os.makedirs(os.path.join(dst, OPTIONAL_FOLDER))
         for name in extra:
             shutil.copy2(os.path.join(extra_src, name), os.path.join(dst, OPTIONAL_FOLDER, name))
-    say("workflows: %d official, %d optional" % (len(OFFICIAL_WORKFLOWS), len(extra)))
+    renamed = sum(place_by_norm(os.path.join(here, n)) for here, _d, names in os.walk(dst) for n in names if n.endswith(".json"))
+    say("workflows: %d official, %d optional; %d file references point into the norm's sub-folders"
+        % (len(OFFICIAL_WORKFLOWS), len(extra), renamed))
+
+
+def place_by_norm(path):
+    """Point a workflow at the folder norm: a file the companions list puts in a sub-folder (the prompt enhancers, in
+    text_encoders\\pe) is named as ComfyUI lists it on Windows, "pe\\<name>". Returns the references changed."""
+    with open(os.path.join(REPO, "depot", "companions.json"), encoding="utf-8") as f:
+        moved = {r["name"]: r["subfolder"] + "\\" + r["name"] for r in json.load(f)["files"] if r.get("subfolder")}
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    changed = [0]
+
+    def walk(value):
+        if isinstance(value, dict):
+            return {k: walk(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, str) and value in moved:
+            changed[0] += 1
+            return moved[value]
+        return value
+    doc = walk(doc)
+    if changed[0]:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f, ensure_ascii=False, indent=2)
+    return changed[0]
 
 
 def stage_setup(s):

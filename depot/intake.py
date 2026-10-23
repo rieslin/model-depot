@@ -195,14 +195,20 @@ class Intake:
         return versions[0]["id"] if versions else None
 
     # ---- where it goes ---------------------------------------------------------------------------------------------
-    def suggest(self, comfy_type, family):
+    def suggest(self, comfy_type, family, subfolder=""):
+        """The suggested folder; a file the companions list puts in a sub-folder (subfolder) goes there, in the type's
+        first folder, even before the sub-folder exists (the download makes it)."""
         if not comfy_type:
             return None
         kind = kinds.kind_of(comfy_type)
-        stats = self.library.folder_stats()
-        same = stats["by_kind_family"].get((kind, family), {}) if family and family != families.UNKNOWN else {}
-        out = folders.suggest(self.cfg, comfy_type, family, families.folder_words(family), same,
-                              stats["by_kind"].get(kind, {}), self.remembered.get(comfy_type, family))
+        own = folders.roots(self.cfg, comfy_type)
+        if subfolder and own:
+            out = {"path": os.path.join(own[0]["path"], subfolder), "reason": "norm", "n": 0, "total": 0}
+        else:
+            stats = self.library.folder_stats()
+            same = stats["by_kind_family"].get((kind, family), {}) if family and family != families.UNKNOWN else {}
+            out = folders.suggest(self.cfg, comfy_type, family, families.folder_words(family), same,
+                                  stats["by_kind"].get(kind, {}), self.remembered.get(comfy_type, family))
         if out:
             root = folders.owning_root(self.cfg, out["path"])
             out["root"] = root["path"] if root else None

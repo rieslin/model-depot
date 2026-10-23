@@ -26,7 +26,7 @@ import time
 
 import aiohttp
 
-from . import families, folders, hfhub, intake as intake_mod, kinds, trash, version_info
+from . import companions, families, folders, hfhub, intake as intake_mod, kinds, trash, version_info
 from .civitai import CivitaiError
 
 log = logging.getLogger("depot.downloads")
@@ -272,6 +272,8 @@ class Downloads:
             info = await hfhub.head(link["hf"], proxy=self.cfg.proxy())
         except hfhub.HFError as e:
             raise AddError("hf", code=e.code) from e
+        if folder and not os.path.isdir(folder) and companions.norm_folder(self.cfg, folder):
+            os.makedirs(folder, exist_ok=True)      # the norm's sub-folder (text_encoders\pe), suggested before it existed
         try:
             dest_dir = folders.check_destination(self.cfg, folder)
         except ValueError as e:

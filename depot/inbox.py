@@ -30,7 +30,7 @@ import shutil
 import sys
 import time
 
-from . import families, folders, kinds, reader, scan, sidecar, sniff
+from . import companions, families, folders, kinds, reader, scan, sidecar, sniff
 
 log = logging.getLogger("depot.inbox")
 
@@ -109,13 +109,17 @@ class Inbox:
                 return r["path"]
         return own[0]["path"]
 
-    def _destination(self, comfy_type, family, kind, stats):
-        """The folder a file of this type and base model goes to, and whether it has to be made."""
+    def _destination(self, comfy_type, family, kind, stats, size=None):
+        """The folder a file of this type and base model goes to (made when it is moved). A file the companions list
+        puts in a sub-folder (a prompt enhancer, by its exact size) goes there."""
         if comfy_type == "llm":
             return os.path.join(self.cfg.reader_install_dir(), "models")
         root = self._type_root(comfy_type)
         if root is None:
             return None
+        sub = companions.subfolder(comfy_type, size=size)
+        if sub:
+            return os.path.join(root, sub)
         same = stats["by_kind_family"].get((kind, family), {}) if family != families.UNKNOWN else {}
         picked = folders.suggest(self.cfg, comfy_type, family, families.folder_words(family), same,
                                  stats["by_kind"].get(kind, {}), None)
@@ -155,7 +159,7 @@ class Inbox:
                     if ctype is None:
                         skipped.append({"path": path, "name": name, "bytes": size, "reason": "unknown"})
                         continue
-                    dest_dir = self._destination(ctype, family, kind, stats)
+                    dest_dir = self._destination(ctype, family, kind, stats, size)
                     if dest_dir is None:
                         skipped.append({"path": path, "name": name, "bytes": size, "reason": "no_folder",
                                         "comfy_type": ctype})

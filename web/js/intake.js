@@ -19,7 +19,7 @@ const FILE_PLATES = { 'model': 'MODEL', 'pruned model': 'PRUNED', 'vae': 'VAE', 
 const LOGIN_ERRORS = ['login_required', 'token_rejected'];
 // Why a folder is suggested (see depot/folders.py).
 const WHY = { last: 'dl.why_last', library: 'dl.why_library', name: 'dl.why_name', type_root: 'dl.why_type_root',
-  first: 'dl.why_first', chosen: 'dl.why_chosen' };
+  first: 'dl.why_first', chosen: 'dl.why_chosen', norm: 'dl.why_norm' };
 const CJK = /[㐀-鿿豈-﫿]/;
 
 function masking() {

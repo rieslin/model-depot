@@ -21,7 +21,7 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import aiohttp
 
-from . import __version__, families, folders, kinds
+from . import __version__, companions, families, folders, kinds
 
 HOSTS = ("huggingface.co", "hf.co", "www.huggingface.co")
 SITE = "https://huggingface.co"
@@ -136,7 +136,8 @@ def describe(link, info, present, queued, suggest):
              "in_library": present.get(sha) if sha else None, "queued": fid in queued}
     version = {"id": 0, "name": link["repo"], "base_model": None, "family": family, "published_at": None,
                "availability": "Public", "early_access": False, "downloads": None, "trigger_words": [], "images": [],
-               "cover": None, "files": [entry], "chosen": [fid], "comfy_type": ctype, "suggestion": suggest(ctype, family)}
+               "cover": None, "files": [entry], "chosen": [fid], "comfy_type": ctype,
+               "suggestion": suggest(ctype, family, companions.subfolder(ctype, sha, info.get("bytes")))}
     owner = link["repo"].split("/")[0]
     return {"site": SITE, "source": "hf", "hf": link["hf"],
             "model": {"id": 0, "name": name, "type": None, "kind": kinds.kind_of(ctype) if ctype else "other",

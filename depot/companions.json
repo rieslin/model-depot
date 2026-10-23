@@ -1,5 +1,5 @@
 {
- "checked": "2026-10-23",
+ "checked": "2026-10-24",
  "files": [
   {
    "family": "zimage",
@@ -8,7 +8,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
    "sha256": "2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6",
-   "bytes": 12309866400
+   "bytes": 12309866400,
+   "use": {
+    "zh": "Z-Image Turbo 扩散模型，步数少、出图快",
+    "en": "Z-Image Turbo diffusion model: few steps, fast results"
+   }
   },
   {
    "family": "zimage",
@@ -17,7 +21,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/z_image/resolve/main/split_files/diffusion_models/z_image_bf16.safetensors",
    "sha256": "996a67d3ff666946b1c25cbc16d1b1918b6cc0ac166309e23fe3b3d830263dee",
-   "bytes": 12309866400
+   "bytes": 12309866400,
+   "use": {
+    "zh": "Z-Image 基础版扩散模型",
+    "en": "Z-Image base diffusion model"
+   }
   },
   {
    "family": "zimage",
@@ -26,7 +34,11 @@
    "directory": "text_encoders",
    "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
    "sha256": "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a",
-   "bytes": 8044982048
+   "bytes": 8044982048,
+   "use": {
+    "zh": "Z-Image 的文本编码器",
+    "en": "Text encoder for Z-Image"
+   }
   },
   {
    "family": "zimage",
@@ -35,7 +47,11 @@
    "directory": "vae",
    "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
    "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
-   "bytes": 335304388
+   "bytes": 335304388,
+   "use": {
+    "zh": "Z-Image 的 VAE",
+    "en": "VAE for Z-Image"
+   }
   },
   {
    "family": "krea2",
@@ -44,7 +60,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_int8_convrot.safetensors",
    "sha256": "8e4eeda70dd5037ab1ba2bef6b417f9f901e26093117cf397f741fc1fdaaf3f1",
-   "bytes": 13492686496
+   "bytes": 13492686496,
+   "use": {
+    "zh": "Krea 2 Turbo 扩散模型（INT8）",
+    "en": "Krea 2 Turbo diffusion model (INT8)"
+   }
   },
   {
    "family": "krea2",
@@ -53,7 +73,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors",
    "sha256": "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1",
-   "bytes": 13141730784
+   "bytes": 13141730784,
+   "use": {
+    "zh": "Krea 2 Turbo 扩散模型（FP8）",
+    "en": "Krea 2 Turbo diffusion model (FP8)"
+   }
   },
   {
    "family": "krea2",
@@ -62,7 +86,11 @@
    "directory": "text_encoders",
    "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
    "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094",
-   "bytes": 5242467968
+   "bytes": 5242467968,
+   "use": {
+    "zh": "Krea 2 的文本编码器",
+    "en": "Text encoder for Krea 2"
+   }
   },
   {
    "family": "krea2",
@@ -71,7 +99,11 @@
    "directory": "vae",
    "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
    "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
-   "bytes": 253806246
+   "bytes": 253806246,
+   "use": {
+    "zh": "Krea 2 的 VAE，与 Anima 共用",
+    "en": "VAE for Krea 2, shared with Anima"
+   }
   },
   {
    "family": "qwen",
@@ -80,7 +112,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
    "sha256": "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d",
-   "bytes": 7256783064
+   "bytes": 7256783064,
+   "use": {
+    "zh": "Qwen-Image 2.1 扩散模型（INT8）",
+    "en": "Qwen-Image 2.1 diffusion model (INT8)"
+   }
   },
   {
    "family": "qwen",
@@ -89,7 +125,11 @@
    "directory": "text_encoders",
    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
    "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f",
-   "bytes": 9350798360
+   "bytes": 9350798360,
+   "use": {
+    "zh": "Qwen-Image 2.1 的文本编码器",
+    "en": "Text encoder for Qwen-Image 2.1"
+   }
   },
   {
    "family": "qwen",
@@ -98,25 +138,39 @@
    "directory": "vae",
    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors",
    "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
-   "bytes": 675509688
+   "bytes": 675509688,
+   "use": {
+    "zh": "Qwen-Image 2.1 的 VAE",
+    "en": "VAE for Qwen-Image 2.1"
+   }
   },
   {
    "family": "qwen",
    "role": "prompt_enhancer",
    "name": "qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors",
    "directory": "text_encoders",
+   "subfolder": "pe",
    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors",
    "sha256": "9182abae56fe05459840a86d22abd21f972061c92fce032630af680c8c5178d3",
-   "bytes": 9471072252
+   "bytes": 9471072252,
+   "use": {
+    "zh": "Qwen-Image 2.1 文生图的提示词扩写模型（PE），出图前改写提示词",
+    "en": "Prompt enhancer for Qwen-Image 2.1 text to image: rewrites the prompt before generating"
+   }
   },
   {
    "family": "qwen",
    "role": "prompt_enhancer_edit",
    "name": "qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors",
    "directory": "text_encoders",
+   "subfolder": "pe",
    "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors",
    "sha256": "32707d01b427e488af252b95c551989aad59f9fec611a694f5db6bde7f0f1f6c",
-   "bytes": 9471072252
+   "bytes": 9471072252,
+   "use": {
+    "zh": "Qwen-Image 2.1 改图的提示词扩写模型（PE），改图前改写编辑指令",
+    "en": "Prompt enhancer for Qwen-Image 2.1 image editing: rewrites the edit instruction before editing"
+   }
   },
   {
    "family": "anima",
@@ -125,7 +179,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-base-v1.0.safetensors",
    "sha256": "bd43b7cffe1ed1153d9c41e7beb2f18cb1273eafbaa3af3edd6a173dc90a006e",
-   "bytes": 4182218328
+   "bytes": 4182218328,
+   "use": {
+    "zh": "Anima 基础版扩散模型",
+    "en": "Anima base diffusion model"
+   }
   },
   {
    "family": "anima",
@@ -134,7 +192,11 @@
    "directory": "text_encoders",
    "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors",
    "sha256": "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba",
-   "bytes": 1192135096
+   "bytes": 1192135096,
+   "use": {
+    "zh": "Anima 的文本编码器",
+    "en": "Text encoder for Anima"
+   }
   },
   {
    "family": "anima",
@@ -143,7 +205,11 @@
    "directory": "vae",
    "url": "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/vae/qwen_image_vae.safetensors",
    "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
-   "bytes": 253806246
+   "bytes": 253806246,
+   "use": {
+    "zh": "Anima 的 VAE，与 Krea 2 共用",
+    "en": "VAE for Anima, shared with Krea 2"
+   }
   },
   {
    "family": "anima",
@@ -152,7 +218,11 @@
    "directory": "loras",
    "url": "https://huggingface.co/circlestone-labs/Anima-Official-LoRAs/resolve/main/anima-turbo-lora-v0.2.safetensors",
    "sha256": "1b55e40bdb1d0e5a78cb498f245fccfdaae97823265db957d2aabdcf4cd3caf1",
-   "bytes": 148902616
+   "bytes": 148902616,
+   "use": {
+    "zh": "Anima 加速 LoRA，减少出图步数",
+    "en": "Anima turbo LoRA: fewer steps"
+   }
   },
   {
    "family": "seedvr2",
@@ -161,7 +231,11 @@
    "directory": "diffusion_models",
    "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/diffusion_models/seedvr2_7b_int8_convrot.safetensors",
    "sha256": "5aa0d25fc9d35e449b659d0c9a5dcb22e2a4fa04032101b95a39da42b32c1be6",
-   "bytes": 8334897976
+   "bytes": 8334897976,
+   "use": {
+    "zh": "SeedVR2 放大模型（7B，INT8），用于图片与视频放大",
+    "en": "SeedVR2 upscaling model (7B, INT8) for images and video"
+   }
   },
   {
    "family": "seedvr2",
@@ -170,7 +244,11 @@
    "directory": "vae",
    "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/main/vae/seedvr2_ema_vae_fp16.safetensors",
    "sha256": "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1",
-   "bytes": 501324814
+   "bytes": 501324814,
+   "use": {
+    "zh": "SeedVR2 的 VAE",
+    "en": "VAE for SeedVR2"
+   }
   },
   {
    "family": "upscaler",
@@ -179,7 +257,11 @@
    "directory": "upscale_models",
    "url": "https://huggingface.co/Kim2091/2x-AnimeSharpV4/resolve/main/2x-AnimeSharpV4_RCAN.safetensors",
    "sha256": "6470bb91d6622d6acdff81132c1a8615b961b919ce2b9a01ce993378500cfbe1",
-   "bytes": 31053198
+   "bytes": 31053198,
+   "use": {
+    "zh": "动漫风格图片的 2 倍放大模型",
+    "en": "2× upscaler for anime-style images"
+   }
   }
  ]
 }

@@ -772,6 +772,7 @@ STRINGS = {
     "dl.why_type_root": ("库中该类型的模型多数位于此文件夹。", "Most models of this type in the library are in this folder."),
     "dl.why_first": ("设置中该类型的第一个文件夹。", "The first folder of this type in Settings."),
     "dl.why_chosen": ("已手动选择。", "Chosen by hand."),
+    "dl.why_norm": ("此类文件按规范放在该子文件夹。", "Files of this kind go in this sub-folder."),
     "dl.no_folder": ("设置中没有该类型的模型文件夹，请选择存放位置，或先在设置中添加文件夹。",
                      "No model folder of this type is set up. Choose a destination, or add a folder in Settings first."),
     "dl.version_absent": ("库中没有此版本", "This version is not in the library"),
