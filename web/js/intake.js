@@ -11,7 +11,7 @@ import { scramble, pace } from './motion.js';
 
 const RUNNING = ['running', 'verifying'];
 const WAITING = ['queued', 'paused', 'retrying'];
-const LINK_HINT = /civitai\.(com|red|green)\b/i;
+const LINK_HINT = /civitai\.(com|red|green)\b|huggingface\.co\/|hf\.co\//i;
 const COVER_ASPECT = 5 / 8;
 const THUMB_ASPECT = 70 / 97;
 const FILE_PLATES = { 'model': 'MODEL', 'pruned model': 'PRUNED', 'vae': 'VAE', 'text encoder': 'TEXT ENC',
@@ -240,8 +240,8 @@ export class IntakeDrawer {
     this.setNote(notes.join(' '));
     const fresh = [];
     for (const link of parsed.links.filter((l) => !l.error)) {
-      const same = this.records.find((r) => r.link.model_id === link.model_id && r.link.version_id === link.version_id
-        && r.link.file_id === link.file_id);
+      const same = this.records.find((r) => (link.hf ? r.link.hf === link.hf : r.link.model_id === link.model_id
+        && r.link.version_id === link.version_id && r.link.file_id === link.file_id));
       if (same) { this.current = same.key; continue; }
       const rec = { key: ++nextKey, link, status: 'loading', preview: null, error: null, files: new Set(), folder: null,
         folderChosen: false, othersOpen: false, pickOpen: false, image: null, note: null, retire: false };
@@ -259,8 +259,8 @@ export class IntakeDrawer {
     rec.error = null;
     this.renderRecords();
     try {
-      const preview = await api('POST', '/api/ui/intake/preview',
-        { model_id: rec.link.model_id, version_id: rec.link.version_id, file_id: rec.link.file_id });
+      const preview = await api('POST', '/api/ui/intake/preview', rec.link.hf ? { hf: rec.link.hf }
+        : { model_id: rec.link.model_id, version_id: rec.link.version_id, file_id: rec.link.file_id });
       if (!this.records.includes(rec)) return;
       rec.preview = preview;
       rec.status = 'ready';
@@ -372,12 +372,18 @@ export class IntakeDrawer {
     // civitai only says when the download starts; until then the line tells what the settings hold.
     const main = v.files.find((f) => v.chosen.includes(f.id)) || v.files[0];
     const facts = [];
-    facts.push(main && main.in_library ? h('li', { class: 'good' }, t('dl.version_present')) : h('li', null, t('dl.version_absent')));
+    const present = p.source === 'hf' ? ['dl.file_present', 'dl.file_absent'] : ['dl.version_present', 'dl.version_absent'];
+    facts.push(main && main.in_library ? h('li', { class: 'good' }, t(present[0])) : h('li', null, t(present[1])));
     if (v.early_access) facts.push(h('li', { class: 'warn' }, t('dl.ea_note')));
     if (p.model.mode) facts.push(h('li', { class: 'warn' }, t('dl.archived')));
     if (v.downloads !== null && v.downloads !== undefined) facts.push(h('li', null, t('dl.n_downloads', { n: v.downloads.toLocaleString() })));
-    facts.push(h('li', { class: p.has_token ? null : 'warn' },
-      t('dl.login_check', { key: t(p.has_token ? 'dl.key_set' : 'dl.key_missing') })));
+    if (p.source === 'hf') {
+      facts.push(main && main.sha256 ? h('li', null, t('dl.hf_check')) : h('li', { class: 'warn' }, t('dl.hf_unchecked')));
+      if (!v.comfy_type) facts.push(h('li', { class: 'warn' }, t('dl.type_unknown')));
+    } else {
+      facts.push(h('li', { class: p.has_token ? null : 'warn' },
+        t('dl.login_check', { key: t(p.has_token ? 'dl.key_set' : 'dl.key_missing') })));
+    }
     const chosen = this.chosenBytes(rec);
     const blocked = this.blockReason(rec);
     const body = h('div', { class: 'rec-main' },
@@ -386,9 +392,12 @@ export class IntakeDrawer {
       h('div', { class: 'rec-sub' },
         p.model.creator ? h('span', null, t('dl.by', { name: p.model.creator })) : null,
         h('span', null, t('kind.' + p.model.kind)),
-        h('span', null, nVersions(p.versions.length)),
-        h('a', { href: p.model.url + '?modelVersionId=' + v.id, target: '_blank', rel: 'noopener noreferrer' }, t('dl.open_civitai'), icon('i-external'))),
-      h('p', { class: 'field-label' }, t('dl.version')), this.drawVersions(rec, v),
+        h('span', null, p.source === 'hf' ? v.name : nVersions(p.versions.length)),
+        p.source === 'hf'
+          ? h('a', { href: p.model.url, target: '_blank', rel: 'noopener noreferrer' }, t('dl.open_hf'), icon('i-external'))
+          : h('a', { href: p.model.url + '?modelVersionId=' + v.id, target: '_blank', rel: 'noopener noreferrer' }, t('dl.open_civitai'), icon('i-external'))),
+      // a Hugging Face file has no versions to choose from: its repository is named in the line above
+      p.source === 'hf' ? null : [h('p', { class: 'field-label' }, t('dl.version')), this.drawVersions(rec, v)],
       h('p', { class: 'field-label' }, t('dl.files')), h('div', { class: 'choices' }, v.files.map((f) => this.drawFile(rec, f))),
       h('p', { class: 'field-label' }, t('dl.save_to')), this.drawFolder(rec, v),
       this.drawKept(rec, v),
@@ -621,9 +630,10 @@ export class IntakeDrawer {
     rec.note = null;
     this.renderRecords();
     try {
-      const result = await api('POST', '/api/ui/downloads', { model_id: rec.preview.model.id, version_id: v.id,
-        file_ids: [...rec.files], folder: rec.folder.path,
-        retire: rec.retire ? this.keptVersions(rec, v).flatMap((x) => x.files.filter((f) => f.in_library && f.sha256).map((f) => f.sha256)) : [] });
+      const result = await api('POST', '/api/ui/downloads', rec.preview.source === 'hf'
+        ? { hf: rec.preview.hf, folder: rec.folder.path, comfy_type: v.comfy_type }
+        : { model_id: rec.preview.model.id, version_id: v.id, file_ids: [...rec.files], folder: rec.folder.path,
+          retire: rec.retire ? this.keptVersions(rec, v).flatMap((x) => x.files.filter((f) => f.in_library && f.sha256).map((f) => f.sha256)) : [] });
       this.items = result.items;
       const notes = result.skipped.map((s) => s.message).join(' ');
       if (result.added.length) {

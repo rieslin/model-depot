@@ -74,7 +74,7 @@ class Intake:
                 raise CivitaiError("not_found", "no model")
             model_id = self._owner.get(version_id)
             if model_id is None:
-                _site, version = await self.library.client().get_version(version_id)
+                _site, version = await self.library.client().get_version(version_id, force=True)
                 model_id = _int(version.get("modelId"))
                 if model_id is None:
                     raise CivitaiError("not_found", "version without a model")
@@ -87,7 +87,7 @@ class Intake:
             cached = self._models.get(model_id)
             if cached and time.time() - cached[0] < CACHE_SECONDS:
                 return cached[1], cached[2]
-            site, model = await self.library.client().get_model(model_id)
+            site, model = await self.library.client().get_model(model_id, force=True)     # the user pasted the link
             self._models[model_id] = (time.time(), site, model)
             for v in model.get("modelVersions") or []:
                 if isinstance(v, dict) and _int(v.get("id")):

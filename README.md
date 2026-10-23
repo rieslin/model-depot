@@ -9,7 +9,7 @@
 
 Model Depot is a local manager for image-generation models. It takes stock of the Checkpoints, diffusion models, LoRAs, VAEs and other model files on your computer, identifies each one by its fingerprint against [civitai](https://civitai.com), downloads and updates models from civitai, and keeps a card of recommended settings for every model. Image programs such as [ComfyUI](https://github.com/Comfy-Org/ComfyUI) can read the model list and the settings over a local API. Everything is stored on your own computer.
 
-Version 0.6.1 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
+Version 0.6.2 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
 
 ## Features
 
@@ -28,7 +28,9 @@ Version 0.6.1 · Windows app and Windows installer · English and Chinese interf
 
 **Downloads and updates**
 - Paste one or several civitai links anywhere in the library. Pick the version and file, accept or change the suggested folder, and add to the queue.
-- The queue downloads one file at a time, resumes after an interruption or a restart, and adds a file to the library only after its fingerprint matches civitai's record. Existing files are never overwritten.
+- Links to one file on Hugging Face are read the same way: text encoders, VAEs, SeedVR2 and ComfyUI's official files are published there. The folder is suggested from the file's path in its repository.
+- The queue downloads one file at a time, resumes after an interruption or a restart, and adds a file to the library only after its fingerprint matches civitai's record (or the one Hugging Face lists). Existing files are never overwritten.
+- `GET /api/v1/companions` lists the files each base model family needs beside its model (text encoder, VAE and so on), with the official download address and fingerprint, and whether the library has each.
 - A manual update check finds newer versions of the same model on its civitai page, telling them apart from other entries the author keeps there.
 
 **Housekeeping**
@@ -42,7 +44,7 @@ Version 0.6.1 · Windows app and Windows installer · English and Chinese interf
 
 ### Install with the Windows installer
 
-The setup installs Model Depot together with its own Python, a portable ComfyUI with custom nodes and workflows, llama.cpp for the local language model and the PixAI tagger model, without downloading anything during installation. When a portable ComfyUI is already on the computer, the setup offers to use it instead of installing another: nothing of it changes, the workflows go into a "Model Depot" folder of its workflow list, and the custom nodes it lacks are listed for installing with ComfyUI Manager. The setup asks where to install, where the model library goes and where Model Depot keeps its data. Model files are not included: put them into the `models` folder beside the setup, and Model Depot sorts them into the library on first start once you confirm.
+The setup installs Model Depot together with its own Python, a portable ComfyUI with custom nodes and workflows, llama.cpp for the local language model and the PixAI tagger model, without downloading anything during installation. When a portable ComfyUI is already on the computer, the setup offers to use it instead of installing another: nothing of it changes, the workflows go into a "Model Depot" folder of its workflow list, and the custom nodes it lacks are listed for installing with ComfyUI Manager. The setup asks where to install, where the model library goes and where Model Depot keeps its data. Model files are not included: put them into the `Model Inbox` folder beside the setup, and Model Depot sorts them into the library on first start once you confirm. The bundled ComfyUI carries a short list of custom nodes, each for a reason (ComfyUI-GGUF for GGUF model files, the PixAI tagger, Impact Pack and Subpack, controlnet_aux), and the Visual C++ runtime files ComfyUI and llama.cpp need. Running a newer setup updates the program in place; ComfyUI's settings, its launch scripts, custom nodes added by other programs or by hand, and workflows you changed are kept. Uninstalling removes only the custom nodes the setup brought.
 
 Requirements: Windows 10 or 11, an NVIDIA RTX 20 series graphics card or later with driver 580 or later, and about 9 GB of free space plus room for the models. The setup is not digitally signed, so Windows may ask for confirmation the first time it runs.
 
@@ -60,7 +62,7 @@ python run.py --stop     # stop
 python run.py --check    # check that this Python can run Model Depot
 ```
 
-The page is at http://127.0.0.1:8194/. A setup wizard asks for the language, the model folders (detected from ComfyUI when present), the network connection (direct or through a proxy) and, optionally, a civitai API key, which is needed only for models whose creators require a login.
+The page is at http://127.0.0.1:8194/. A setup wizard asks for the language, the model folders (detected from ComfyUI when present), the network connection (the system proxy, which is the default, a direct connection or a proxy of your own; "Test connection" shows at which step civitai cannot be reached) and, optionally, a civitai API key, which is needed only for models whose creators require a login.
 
 ### Windows app
 
@@ -70,7 +72,8 @@ The page is at http://127.0.0.1:8194/. A setup wizard asks for the language, the
 
 - By default Model Depot listens on 127.0.0.1 only. For other devices to call the API, `server.host` must be changed and `remote_access` enabled with an access key of at least 8 characters, both in `config.json`.
 - It contacts civitai.com, civitai.red and civitai's image hosts to identify models, read model pages and download files, at a deliberately slow pace with results cached. The civitai API key is sent only to civitai.com and civitai.red.
-- When you choose to install the local language model from the settings, llama.cpp is downloaded from its GitHub releases and the model from Hugging Face. Nothing else is contacted, and nothing is reported anywhere.
+- When civitai cannot be reached, Model Depot asks it once at start and after a failure; from then on it works offline from its saved records and asks nothing more until you retry by hand, change the network settings or start it again.
+- Hugging Face is contacted for a file link you paste, and when you choose to install the local language model from the settings (llama.cpp comes from its GitHub releases). Nothing else is contacted, and nothing is reported anywhere.
 - Model Depot applies no content screening. Hiding covers by rating is a display preference and can be turned off.
 
 ## Data

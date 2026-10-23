@@ -1,4 +1,5 @@
-"""Reading what someone pastes into the download field: civitai addresses and bare numbers.
+"""Reading what someone pastes into the download field: civitai addresses and bare numbers, and Hugging Face links to
+one file (hfhub.py).
 
 Accepted, on civitai.com, civitai.red and civitai.green (a link's site only names the model; the program always asks
 the sites in the settings):
@@ -15,6 +16,8 @@ common separators.
 """
 import re
 from urllib.parse import parse_qs, urlsplit
+
+from . import hfhub
 
 CIVITAI_DOMAINS = ("civitai.com", "civitai.red", "civitai.green")
 MAX_LINKS = 20
@@ -49,6 +52,9 @@ def parse_url(text):
         host = parts.hostname
     except ValueError:
         return {"error": "unrecognized"}
+    if hfhub.is_hf(host):
+        link = hfhub.parse(url)
+        return {"error": link["error"]} if link.get("error") else {"hf": link["hf"], "name": link["name"], "error": None}
     if not _is_civitai(host):
         return {"error": "not_civitai"}
     segs = [s for s in parts.path.split("/") if s]
@@ -79,7 +85,7 @@ def parse_url(text):
 def parse_token(token):
     """One piece of pasted text as {"input", "model_id", "version_id", "file_id", "error"}."""
     s = token.strip().strip(_TRIM)
-    out = {"input": s, "model_id": None, "version_id": None, "file_id": None, "error": None}
+    out = {"input": s, "model_id": None, "version_id": None, "file_id": None, "hf": None, "error": None}
     m = _AIR_RE.match(s) or _PAIR_RE.match(s)
     if m:
         out["model_id"], out["version_id"] = _int(m.group(1)), _int(m.group(2))
@@ -89,7 +95,7 @@ def parse_token(token):
         out.update(parse_url(s))
     else:
         out["error"] = "unrecognized"
-    if out["error"] is None and out["model_id"] is None and out["version_id"] is None:
+    if out["error"] is None and out["model_id"] is None and out["version_id"] is None and not out.get("hf"):
         out["error"] = "unrecognized"
     return out
 
@@ -112,7 +118,7 @@ def parse(text):
     for token in _tokens(str(text or "")):
         item = parse_token(token)
         if item["error"] is None:
-            key = (item["model_id"], item["version_id"])
+            key = item["hf"] or (item["model_id"], item["version_id"])
             if key in seen:
                 continue
             seen.add(key)

@@ -13,7 +13,7 @@ import time
 
 log = logging.getLogger("depot.db")
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _DOWNLOADS = """
 CREATE TABLE IF NOT EXISTS downloads (
@@ -74,17 +74,23 @@ _USER = (
     "ALTER TABLE models ADD COLUMN user_base_model TEXT",
 )
 
+_URL = (
+    # a download from a direct address (a Hugging Face file) instead of a civitai version; NULL for civitai
+    "ALTER TABLE downloads ADD COLUMN url TEXT",
+)
+
 _MIGRATIONS = {
     2: ("ALTER TABLE models ADD COLUMN bundled INTEGER NOT NULL DEFAULT 0",),
     3: (_DOWNLOADS,),
     4: _RETIRE,
     5: _CARDS,
     6: _USER,
+    7: _URL,
 }
 
 _CARD_KINDS = "('checkpoint', 'diffusion_model', 'lora', 'embedding')"
 
-_SCHEMA = _DOWNLOADS + ";\n" + ";\n".join(_RETIRE) + """;
+_SCHEMA = _DOWNLOADS + ";\n" + ";\n".join(_RETIRE + _URL) + """;
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE TABLE IF NOT EXISTS files (

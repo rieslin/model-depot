@@ -592,6 +592,7 @@ button.hero-btn:disabled { cursor: progress; opacity: 0.75; }
 .page button:hover { background: var(--ink); color: #fff; }
 .page button.primary { background: var(--ink); color: #fff; }
 .page button.primary:hover { background: var(--ink-hover); }
+.page button:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 /* the plain pages' choices are the system's square boxes too (the user's choice, 2026-10-02): a single choice fills with
    ink inside a 3 px stock ring, as the drawer's version rows; a checkbox carries the tick (with the rules further down) */
 .page input[type=radio] { -webkit-appearance: none; appearance: none; flex: none; width: 16px; height: 16px; margin: 0;

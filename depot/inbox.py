@@ -8,18 +8,26 @@ Where a file goes, from its header alone (sniff.py; nothing is asked of civitai)
   - its ComfyUI type (checkpoints, loras, vae, ...) picks the model folder from the settings: the one named like the
     type ("diffusion_models" before ComfyUI's older "unet"), else the first;
   - its base model picks the sub-folder, by the same rules as a download's suggested folder (folders.suggest): where
-    the library already keeps that base model, else a folder named after it, else a new one named after it;
-  - a language model (a GGUF the local model reads the authors' notes with) goes to the local model's folder, and is
-    set up for reading when none is;
+    the library already keeps that base model, else a folder named after it; else the type's folder itself. No new
+    sub-folder is made: workflows name files relative to the type's folder, and a file moved into a new "krea2\" was
+    no longer the name the bundled workflows asked for (review of 2026-10-20);
+  - a language model the program recommends for reading the authors' notes (by its file name) goes to the local
+    model's folder, and is set up for reading when none is; every other GGUF is a model for ComfyUI (a text encoder
+    such as Flux.2's 24B one, or a diffusion model), however large;
   - the old WebUI's files next to a model (its preview, .civitai.info and .json) go with it;
   - a file whose type cannot be told, and any other file, stays where it is.
 A file is moved by renaming it when the folders share a drive; across drives it is copied (as <name>.part, renamed
-once complete) and the original removed afterwards. An existing file is never replaced: the name gets " (2)".
+once complete) and the original removed afterwards, except on a removable drive (a USB stick the models came on),
+where the original stays. An existing file is never replaced, nor is the new one renamed: a file of the same name
+and size is taken to be there already, one of the same name and another size is left for the user to sort by hand.
 """
 import asyncio
+import ctypes
 import logging
 import os
+import re
 import shutil
+import sys
 import time
 
 from . import families, folders, kinds, reader, scan, sidecar, sniff
@@ -27,11 +35,9 @@ from . import families, folders, kinds, reader, scan, sidecar, sniff
 log = logging.getLogger("depot.inbox")
 
 CHUNK = 8 << 20
-# A GGUF whose architecture is a language model's is a text encoder (Z-Image's Qwen3 4B, for instance) below this
-# size, and a model to read with above it: the smallest recommended reading model is 15.6 GB.
-LLM_MIN_BYTES = 6 << 30
-_LLM_ARCHES = {"llama", "qwen2", "qwen3", "qwen3moe", "qwen35", "qwen35moe", "qwen2moe", "gemma", "gemma2", "gemma3",
-               "mistral", "mixtral", "phi3", "glm4", "deepseek2", "command-r", "gpt-oss"}
+
+
+_UPSCALER_NAME = re.compile(r"(^|[^a-z0-9])\d{1}x[-_ ]|esrgan|realesr|upscal|swinir|\bdat\b|span|compact", re.I)
 
 
 class InboxError(Exception):
@@ -40,6 +46,17 @@ class InboxError(Exception):
     def __init__(self, code):
         super().__init__(code)
         self.code = code
+
+
+def _removable(path):
+    """Is this on a removable drive (Windows' DRIVE_REMOVABLE: USB sticks, card readers)?"""
+    if sys.platform != "win32":
+        return False
+    root = os.path.splitdrive(os.path.abspath(path))[0] + "\\"
+    try:
+        return ctypes.windll.kernel32.GetDriveTypeW(ctypes.c_wchar_p(root)) == 2
+    except (AttributeError, OSError):
+        return False
 
 
 def _sidecars(folder, name, names_lower):
@@ -66,13 +83,17 @@ class Inbox:
 
     def _target(self, header, path, size):
         """(comfy_type, family, kind) for a model file, or (None, ...) when it cannot be told."""
+        if not header and _UPSCALER_NAME.search(os.path.basename(path)) and \
+                os.path.splitext(path)[1].lower() in (".pth", ".pt", ".bin"):
+            # an old upscaler in pickle form, which has no header to read: its name says it ("4x-UltraSharp.pth")
+            return "upscale_models", families.UNKNOWN, kinds.kind_of("upscale_models")
         header = header or {}
         content = header.get("content")
         family = header.get("family") or families.UNKNOWN
         if header.get("format") == "gguf" and content in ("text_encoder", "unknown"):
-            arch = str((header.get("meta") or {}).get("general.architecture") or "").lower()
-            named = os.path.basename(path).lower() in {m["file"].lower() for m in reader.MODELS.values()}
-            if named or (arch in _LLM_ARCHES and size >= LLM_MIN_BYTES):
+            # by size or architecture a text encoder cannot be told from a chat model (Flux.2's text encoder is a 24B
+            # Mistral, 14 GB and more as GGUF): only the reading models the program recommends count as one
+            if os.path.basename(path).lower() in {m["file"].lower() for m in reader.MODELS.values()}:
                 return "llm", families.UNKNOWN, "llm"
         ctype = scan._CONTENT_TYPE.get(content)
         if not ctype:
@@ -100,14 +121,13 @@ class Inbox:
                                  stats["by_kind"].get(kind, {}), None)
         if picked and picked["reason"] in ("library", "name"):
             return picked["path"]
-        if family != families.UNKNOWN:
-            return os.path.join(root, family)       # a new sub-folder named after the base model
         return root
 
     def plan(self, stats):
         """What is in the inbox folders: {"folders": [{"path", "once"}], "items": [...], "skipped": [...], "bytes"}.
         items: files that would be moved, each {"path", "name", "bytes", "comfy_type", "kind", "family", "dest",
-        "rel", "sidecars"}; skipped: {"path", "name", "bytes", "reason": "not_model" | "unknown" | "no_folder"}.
+        "rel", "sidecars", "keep"}; keep: the original stays (a removable drive). skipped: {"path", "name", "bytes",
+        "reason": "not_model" | "unknown" | "no_folder" | "already_there" | "name_taken", "dest"?}.
         stats: library.folder_stats(), taken on the event loop's thread (the index is not shared across threads);
         the rest reads files and runs in a worker thread."""
         boxes = self.folders()
@@ -140,14 +160,22 @@ class Inbox:
                         skipped.append({"path": path, "name": name, "bytes": size, "reason": "no_folder",
                                         "comfy_type": ctype})
                         continue
-                    dest = folders.unique_path(dest_dir, folders.safe_name(name), taken)
+                    dest = os.path.join(dest_dir, folders.safe_name(name))
+                    if os.path.normcase(dest) in taken or os.path.exists(dest):
+                        try:
+                            same = os.path.getsize(dest) == size
+                        except OSError:
+                            same = False
+                        skipped.append({"path": path, "name": name, "bytes": size, "dest": dest,
+                                        "reason": "already_there" if same else "name_taken"})
+                        continue
                     taken.add(os.path.normcase(dest))
                     root = self.cfg.reader_install_dir() if ctype == "llm" else self._type_root(ctype)
                     rel = os.path.relpath(dest_dir, os.path.dirname(root.rstrip("\\/"))) if root else dest_dir
                     items.append({"path": path, "name": name, "bytes": size, "comfy_type": ctype, "kind": kind,
                                   "family": family, "dest": dest, "rel": rel,
                                   "arch": ((header or {}).get("meta") or {}).get("general.architecture"),
-                                  "sidecars": _sidecars(current, name, names_lower)})
+                                  "sidecars": _sidecars(current, name, names_lower), "keep": _removable(path)})
         return {"folders": [{"path": p, "once": once} for p, once in boxes], "items": items, "skipped": skipped,
                 "bytes": sum(i["bytes"] for i in items)}
 
@@ -244,7 +272,7 @@ class Inbox:
         if item["comfy_type"] != "llm":
             folders.check_destination(self.cfg, folder)         # never outside the model folders of the settings
         if os.path.exists(dest):
-            dest = folders.unique_path(folder, os.path.basename(dest))
+            raise OSError("%s is already there" % os.path.basename(dest))
         stem = os.path.splitext(os.path.basename(dest))[0]
         own_stem = os.path.splitext(item["name"])[0]
         pairs = [(src, dest)]
@@ -254,18 +282,19 @@ class Inbox:
             if os.path.isfile(side_src) and not os.path.exists(side_dest):
                 pairs.append((side_src, side_dest))
         for a, b in pairs:
-            self._move_file(a, b, counted=(a == src))
+            self._move_file(a, b, counted=(a == src), keep=item.get("keep", False))
         return dest
 
-    def _move_file(self, src, dest, counted):
-        try:
-            os.replace(src, dest)
-            if counted:
-                self.state["bytes_done"] += os.path.getsize(dest)
-            return
-        except OSError as e:
-            if getattr(e, "winerror", None) != 17 and getattr(e, "errno", None) != 18:   # not "another drive"
-                raise
+    def _move_file(self, src, dest, counted, keep=False):
+        if not keep:
+            try:
+                os.replace(src, dest)
+                if counted:
+                    self.state["bytes_done"] += os.path.getsize(dest)
+                return
+            except OSError as e:
+                if getattr(e, "winerror", None) != 17 and getattr(e, "errno", None) != 18:   # not "another drive"
+                    raise
         part = dest + ".part"
         try:
             with open(src, "rb") as fin, open(part, "wb") as fout:
@@ -288,7 +317,8 @@ class Inbox:
             except OSError:
                 pass
             raise
-        os.remove(src)
+        if not keep:
+            os.remove(src)
 
     def _use_llm(self, path, hw):
         """A language model was moved in: read the authors' notes with it when no local model is set up yet and the

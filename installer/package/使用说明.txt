@@ -1,30 +1,34 @@
 Model Depot 安装包
 
 安装步骤
-1. 将模型文件（Checkpoint、扩散模型、LoRA、VAE、文本编码器、GGUF 格式的本地语言模型等）放入本文件夹中的 models 文件夹，子文件夹的排列方式不限。也可在安装完成后放入安装位置的 models 文件夹。
+1. 将模型文件（Checkpoint、扩散模型、LoRA、VAE、文本编码器、放大模型等）放入本文件夹中的 Model Inbox 文件夹，子文件夹的排列方式不限。也可在安装完成后放入安装位置的 Model Inbox 文件夹。Model Inbox 只是待整理的文件夹，ComfyUI 不从这里读取模型。
 2. 运行「Model Depot Setup.exe」，依次选择安装位置、模型库与数据文件夹。安装期间无需联网。
-3. 安装完成后打开 Model Depot，完成设置。Model Depot 随后列出 models 文件夹中每个文件将移入模型库的位置，确认后移入。
+3. 安装完成后打开 Model Depot，完成设置。Model Depot 随后列出 Model Inbox 中每个文件将移入模型库的位置，确认后移入。ComfyUI 与 Model Depot 都从模型库读取模型。
 
-安装内容：Model Depot、ComfyUI（含插件与工作流）、本地模型运行程序、PixAI 打标模型。本机已装有 ComfyUI 便携版时，可选择沿用，不再另装一份。
+安装内容：Model Depot、ComfyUI（含插件与工作流）、本地模型运行程序、PixAI 打标模型，以及 ComfyUI 与本地模型所需的 Visual C++ 运行库文件。本机已装有 ComfyUI 便携版时，可选择沿用，不再另装一份。
 系统要求：Windows 11 或 Windows 10；NVIDIA RTX 20 系列或更新的显卡，驱动 580 或更新；安装位置约需 9 GB 可用空间，模型另需空间。
 
 注意事项
 - 安装程序未经数字签名。首次运行时 Windows 可能显示「Windows 已保护你的电脑」，点击「更多信息」，再点击「仍要运行」。
 - setup 文件夹为安装数据，须与「Model Depot Setup.exe」放在同一文件夹中，请勿改动。
-- 卸载：Windows 设置 > 应用 > 已安装的应用 > Model Depot。卸载只删除程序文件，模型、生成的图片与资料保留。
+- 网络：Model Depot 默认使用系统代理。连接 civitai 有问题时，可在 Model Depot 的「设置」中按「测试连接」查看原因。
+- 更新：运行新版安装包即可，ComfyUI 的设置、启动脚本、其他程序或手动安装的插件，以及修改过的工作流均保留。
+- 卸载：Windows 设置 > 应用 > 已安装的应用 > Model Depot。卸载只删除程序文件与安装包自带的插件；模型、生成的图片、资料，以及其他程序或手动安装的插件保留。
 
 
 Model Depot Setup
 
 Installation
-1. Put the model files (checkpoints, diffusion models, LoRAs, VAEs, text encoders, GGUF language models and so on) into the models folder here, in any sub-folders. They can also go into the models folder of the installation later.
+1. Put the model files (checkpoints, diffusion models, LoRAs, VAEs, text encoders, upscalers and so on) into the Model Inbox folder here, in any sub-folders. They can also go into the Model Inbox folder of the installation later. Model Inbox only holds files to be sorted; ComfyUI does not read models from it.
 2. Run "Model Depot Setup.exe" and choose the installation folder, the model library and the data folder. No internet connection is needed.
-3. Open Model Depot when the setup has finished and complete its settings. It then lists where each file in the models folder will go in the library, and moves them once confirmed.
+3. Open Model Depot when the setup has finished and complete its settings. It then lists where each file in Model Inbox will go in the library, and moves them once confirmed. ComfyUI and Model Depot both read models from the library.
 
-Installed: Model Depot, ComfyUI with its custom nodes and workflows, the local model runtime, the PixAI Tagger. When a portable ComfyUI is already on the computer, it can be used instead of installing another.
+Installed: Model Depot, ComfyUI with its custom nodes and workflows, the local model runtime, the PixAI Tagger, and the Visual C++ runtime files ComfyUI and the local model need. When a portable ComfyUI is already on the computer, it can be used instead of installing another.
 Requirements: Windows 11 or Windows 10; an NVIDIA RTX 20 series card or later with driver 580 or later; about 9 GB free for the installation, and room for the models.
 
 Notes
 - The setup is not digitally signed. On first run, Windows may show "Windows protected your PC": click "More info", then "Run anyway".
 - The setup folder holds the installation data. Keep it next to "Model Depot Setup.exe" and leave it unchanged.
-- To uninstall: Windows Settings > Apps > Installed apps > Model Depot. Only the program files are removed; models, generated images and records are kept.
+- Network: Model Depot uses the system proxy by default. If civitai cannot be reached, press "Test connection" in Model Depot's Settings to see why.
+- Updating: run the new setup. ComfyUI's settings, its launch scripts, custom nodes added by other programs or by hand, and workflows you changed are kept.
+- To uninstall: Windows Settings > Apps > Installed apps > Model Depot. Only the program files and the custom nodes the setup brought are removed; models, generated images, records, and custom nodes added by other programs or by hand are kept.

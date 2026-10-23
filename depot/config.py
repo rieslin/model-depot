@@ -9,13 +9,15 @@ import os
 import re
 import uuid
 
-SCHEMA = 1
+from . import netroute
+
+SCHEMA = 2      # 2 (2026-10-23): "system" became the network default; a saved "direct" without a proxy moves to it
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8194
 CIVITAI_SITES = ("https://civitai.red", "https://civitai.com")   # asked in this order: .red carries everything
 LANGS = ("zh", "en")
 TOKEN_SOURCES = ("none", "value", "env_file")
-NETWORK_MODES = ("direct", "proxy")
+NETWORK_MODES = ("system", "direct", "proxy")   # system: the proxy Windows is set to use, read at each request
 READER_MODES = ("rules", "managed", "endpoint")
 
 _TYPE_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,64}$')   # a ComfyUI type name, or a folder's own name
@@ -41,7 +43,9 @@ def defaults():
             "request_interval": 2.0,   # seconds between API requests
             "image_interval": 1.0,     # seconds between cover downloads
         },
-        "network": {"mode": "direct", "proxy": ""},
+        # "system" since 2026-10-23: a VPN that sets only the Windows proxy left the program unable to reach civitai
+        # while the browser could (a friend's computer, 2026-10-18). Settings saved before keep their own choice.
+        "network": {"mode": "system", "proxy": ""},
         "library_dir": "",             # records and covers; empty means <data>/library
         # Files fingerprinted at the same time. Two is a safe middle: SSDs gain (measured on an NVMe drive whose
         # old files read slowly: 1.7 times the throughput), and a hard disk loses little.
@@ -102,6 +106,23 @@ def read_env_var(path, name):
     return (value, None) if value else ("", "var_missing")
 
 
+def normal_proxy(text):
+    """A proxy address as typed; "127.0.0.1:7890", as VPN programs show it, gets its http://."""
+    proxy = str(text or "").strip()
+    if re.match(r"^[^\s/:]+:\d{1,5}$", proxy):
+        proxy = "http://" + proxy
+    return proxy
+
+
+def route_proxy(mode, proxy):
+    """The proxy a request takes for a network setting: None for a direct connection."""
+    if mode == "proxy":
+        return proxy or None
+    if mode == "system":
+        return netroute.read()["proxy"]
+    return None
+
+
 def _merge(base, extra):
     """Copy of base with extra laid over it; dicts merge, everything else is replaced."""
     out = copy.deepcopy(base)
@@ -120,8 +141,15 @@ def _abs_path(value):
 
 def normalize(raw):
     """(settings, problems). Settings always has every key; problems lists (field, code) for what was wrong."""
-    cfg = _merge(defaults(), raw if isinstance(raw, dict) else {})
+    raw = raw if isinstance(raw, dict) else {}
+    cfg = _merge(defaults(), raw)
     problems = []
+    old_net = raw.get("network") if isinstance(raw.get("network"), dict) else {}
+    if int(raw.get("schema") or 1) < 2 and old_net.get("mode") == "direct" and not str(old_net.get("proxy") or "").strip():
+        # the setup wizard of 0.6 saved "direct" whatever the user did: a VPN that sets only the Windows proxy then
+        # left the program unable to reach civitai (a friend's computer, 2026-10-18). With no system proxy set,
+        # "system" connects directly all the same.
+        cfg["network"] = {"mode": "system", "proxy": ""}
     cfg["schema"] = SCHEMA
     cfg["setup_done"] = bool(cfg.get("setup_done"))
 
@@ -193,9 +221,11 @@ def normalize(raw):
         problems.append(("civitai.env_file", "env_file_missing"))
 
     net = cfg["network"] if isinstance(cfg.get("network"), dict) else {}
-    mode = net.get("mode") if net.get("mode") in NETWORK_MODES else "direct"
-    proxy = str(net.get("proxy") or "").strip()
-    if mode == "proxy" and not _URL_RE.match(proxy):
+    mode = net.get("mode") if net.get("mode") in NETWORK_MODES else "system"
+    proxy = normal_proxy(net.get("proxy"))
+    if mode == "proxy" and proxy.lower().startswith("socks"):
+        problems.append(("network.proxy", "proxy_socks"))     # aiohttp speaks to HTTP proxies only
+    elif mode == "proxy" and not _URL_RE.match(proxy):
         problems.append(("network.proxy", "proxy_bad"))
     cfg["network"] = {"mode": mode, "proxy": proxy}
 
@@ -330,8 +360,9 @@ class Config:
         return "", None
 
     def proxy(self):
+        """The proxy for a request made now (with "system", Windows' current setting), or None."""
         net = self.data["network"]
-        return net["proxy"] if net["mode"] == "proxy" and net["proxy"] else None
+        return route_proxy(net["mode"], net["proxy"])
 
     def public(self):
         """The settings as the page may see them: no key values, only whether one is in place."""

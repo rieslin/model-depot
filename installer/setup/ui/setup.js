@@ -35,6 +35,7 @@ const WORDS = {
   comfy_missing_note: ['工作流放入单独的文件夹，原有文件不变。缺少的插件可在安装完成后经 ComfyUI 管理器安装，补齐之前用到它们的功能无法使用。',
     'The workflows go into a folder of their own; nothing already there changes. The missing custom nodes can be installed afterwards with ComfyUI Manager; the features that use them do not work until then.'],
   nodes: {
+    'ComfyUI-GGUF': ['GGUF 格式模型的加载', 'Loading GGUF models'],
     'ComfyUI-Crystools': ['资源监视与图像信息', 'Resource monitor and image details'],
     'ComfyUI-Impact-Pack': ['细节修复（人脸、手部）', 'Detail fixing (faces, hands)'],
     'ComfyUI-Impact-Subpack': ['细节修复所用的检测模型', 'Detection models for detail fixing'],
@@ -80,10 +81,10 @@ const WORDS = {
     'The chosen ComfyUI\'s models folder: ComfyUI and Model Depot both read models from here.'],
   data_label: ['数据文件夹', 'Data folder'],
   data_help: ['Model Depot 的设置、资料卡与封面。', 'Model Depot\'s settings, model cards and covers.'],
-  inbox_some: ['安装包旁的 models 文件夹中有 <b>{n}</b> 个模型文件，共 <b>{size}</b>。首次打开 Model Depot 时列出整理清单，确认后移入模型库。',
-    'The models folder next to this setup holds <b>{n}</b> model files, <b>{size}</b> in all. When Model Depot first opens, it lists where each will go and moves them into the library once confirmed.'],
-  inbox_none: ['模型文件可放入安装位置的 models 文件夹。Model Depot 打开时列出整理清单，确认后移入模型库。',
-    'Model files can be put into the models folder of the installation. When Model Depot opens, it lists where each will go and moves them into the library once confirmed.'],
+  inbox_some: ['安装包旁的 Model Inbox 文件夹中有 <b>{n}</b> 个模型文件，共 <b>{size}</b>。首次打开 Model Depot 时列出整理清单，确认后移入模型库。',
+    'The Model Inbox folder next to this setup holds <b>{n}</b> model files, <b>{size}</b> in all. When Model Depot first opens, it lists where each will go and moves them into the library once confirmed.'],
+  inbox_none: ['模型文件可放入安装位置的 Model Inbox 文件夹。Model Depot 打开时列出整理清单，确认后移入模型库。',
+    'Model files can be put into the Model Inbox folder of the installation. When Model Depot opens, it lists where each will go and moves them into the library once confirmed.'],
   installing: ['正在安装', 'Installing'],
   installing_lead: ['安装期间无需联网。', 'No internet connection is needed.'],
   unpacking: ['正在安装 {part}', 'Installing {part}'],
@@ -99,7 +100,7 @@ const WORDS = {
   done_note: ['首次打开时依次完成设置（语言、civitai 密钥与网络）与模型整理。',
     'The first time it opens, Model Depot asks for its settings (language, civitai key and network), then sorts the models.'],
   failed_title: ['安装未完成', 'Installation did not finish'],
-  failed_lead: ['已复制的文件已删除。安装包与 models 文件夹中的模型不受影响。', 'The files copied so far were removed. This setup and the models folder were not touched.'],
+  failed_lead: ['已复制的文件已删除。安装包与 Model Inbox 文件夹中的模型不受影响。', 'The files copied so far were removed. This setup and the Model Inbox folder were not touched.'],
   cancelled_title: ['安装已取消', 'Installation cancelled'],
   cancel: ['取消', 'Cancel'], next: ['下一步', 'Next'], back: ['上一步', 'Back'], install: ['安装', 'Install'],
   finish: ['完成', 'Finish'], close: ['关闭', 'Close'], retry: ['返回', 'Back'],
@@ -111,7 +112,7 @@ const WORDS = {
     'ComfyUI and the local model need an NVIDIA graphics card (RTX 20 series or later). Without one, Model Depot\'s library and downloads still work.'],
   quit: ['退出安装', 'Quit Setup'], anyway: ['仍然安装', 'Install Anyway'],
   ask_cancel_title: ['取消安装', 'Cancel installation'],
-  ask_cancel: ['已复制的文件将删除。安装包与 models 文件夹中的模型不受影响。', 'The files copied so far are removed. This setup and the models folder are not touched.'],
+  ask_cancel: ['已复制的文件将删除。安装包与 Model Inbox 文件夹中的模型不受影响。', 'The files copied so far are removed. This setup and the Model Inbox folder are not touched.'],
   keep_going: ['继续安装', 'Continue'], stop_install: ['取消安装', 'Cancel Installation'],
   problem: {
     bad_path: ['路径无效。', 'This path is not valid.'],
@@ -119,7 +120,8 @@ const WORDS = {
     not_writable: ['该位置无法写入。', 'This place cannot be written to.'],
     no_room: ['磁盘空间不足：需要 {need}，可用 {free}。', 'Not enough room: {need} needed, {free} free.'],
     non_ascii: ['路径包含中文或其他非英文字符，部分 ComfyUI 插件可能无法正常工作。', 'The path has non-English characters; some ComfyUI custom nodes may not work with it.'],
-    comfyui_running: ['ComfyUI 正在运行。请先关闭 ComfyUI 的窗口，再继续。', 'ComfyUI is running. Close its window, then continue.'],
+    comfyui_running: ['ComfyUI 正在运行（可能由其他程序在后台启动）。请先关闭它，再继续。', 'ComfyUI is running (perhaps started in the background by another program). Close it, then continue.'],
+    newer_installed: ['此电脑已安装较新的版本（{detail}），不能用较旧的安装包覆盖。', 'A newer version ({detail}) is already installed; an older setup cannot replace it.'],
     no_payload: ['安装包不完整：缺少 setup 文件夹中的文件。', 'This setup is incomplete: files are missing from its setup folder.'],
     unpack_failed: ['解压失败：{detail}', 'Unpacking failed: {detail}'],
     update_incomplete: ['更新未完成。再次运行安装程序即可完成更新，设置、资料与模型不受影响。', 'The update did not finish. Run the setup again to complete it; settings, records and models are not affected.'],
@@ -135,6 +137,7 @@ const WORDS = {
   kept_library: ['模型库', 'Model library'], kept_data: ['数据文件夹', 'Data folder'], kept_inbox: ['待整理文件夹', 'Inbox folder'],
   kept_comfy: ['工作流与出图', 'Workflows, images'],
   kept_comfy_path: ['{p} 中的 user、output、input', 'user, output and input in {p}'],
+  kept_plugins: ['其他 ComfyUI 插件', 'Other ComfyUI custom nodes'],
   removing: ['正在卸载', 'Uninstalling'],
   uninstall: ['卸载', 'Uninstall'],
   removed_title: ['卸载完成', 'Uninstalled'],
@@ -317,7 +320,7 @@ function showProblems() {
     const key = el.getAttribute('data-field');
     const [bad, warn] = el.querySelectorAll('.su-help.bad, .su-help.warn');
     const mine = (list) => (checked ? checked[list].filter((p) => p.field === key) : []);
-    const say = (p) => t('problem.' + p.code, { need: gb(p.need || 0), free: gb(p.free || 0) });
+    const say = (p) => t('problem.' + p.code, { need: gb(p.need || 0), free: gb(p.free || 0), detail: p.detail || '' });
     bad.textContent = mine('problems').map(say).join(' ');
     bad.hidden = !bad.textContent;
     warn.textContent = mine('warnings').map(say).join(' ');
@@ -524,7 +527,8 @@ function stepRemove() {
   const row = (label, path) => h('li', null, h('span', { class: 'what' }, label), h('span', { class: 'path' }, path));
   body(h('h2', null, t('remove_title')), h('p', { class: 'su-lead' }, t(k.comfy_external ? 'remove_lead_existing' : 'remove_lead')),
     h('ul', { class: 'su-list kept' }, row(t('kept_library'), k.library), row(t('kept_data'), k.data), row(t('kept_inbox'), k.inbox),
-      k.comfy_external ? row('ComfyUI', k.comfy_external) : row(t('kept_comfy'), t('kept_comfy_path', { p: k.comfy_user }))));
+      k.comfy_external ? row('ComfyUI', k.comfy_external) : row(t('kept_comfy'), t('kept_comfy_path', { p: k.comfy_user })),
+      k.comfy_plugins ? row(t('kept_plugins'), k.comfy_plugins.join(LANG ? ', ' : '、')) : null));
   actions(grow(), btn(t('cancel'), 'line', closeWindow), btn(t('uninstall'), 'solid', async () => {
     stepRemoving();
     busy = true;
@@ -585,7 +589,7 @@ async function start() {
 // ---- the sample answers of ?demo ----------------------------------------------------------------------------------
 const Demo = {
   info: {
-    mode: 'install', lang: 'zh', version: '0.6.1', comfyui: '0.37.0', upgrade: false,
+    mode: 'install', lang: 'zh', version: '0.6.2', comfyui: '0.42.5', upgrade: false,
     parts: [{ name: 'app', bytes: 52e6 }, { name: 'python', bytes: 40e6 }, { name: 'llm', bytes: 700e6 }, { name: 'comfyui', bytes: 6.2e9 },
       { name: 'library', bytes: 1.95e9 }, { name: 'workflows', bytes: 1e6 }],
     bytes: 8.94e9, counts: { custom_nodes: 12, official: 7, optional: 20 },
@@ -593,11 +597,12 @@ const Demo = {
       models: 'D:\\ComfyUI_windows_portable\\ComfyUI\\models', nodes: 12, missing: [] }] },
     defaults: { install: 'D:\\Model Depot', library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data' },
     gpu: { name: 'NVIDIA GeForce RTX 5070 Ti', driver: '616.92', ok: true, problem: '' },
-    inbox: { path: 'E:\\Model Depot Setup\\models', files: 6, bytes: 41.0 * 1024 ** 3 },
+    inbox: { path: 'E:\\Model Depot Setup\\Model Inbox', files: 6, bytes: 41.0 * 1024 ** 3 },
   },
   call(cmd, args) {
-    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.1', install: 'D:\\Model Depot',
-      kept: { library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data', inbox: 'D:\\Model Depot\\models',
+    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.2', install: 'D:\\Model Depot',
+      kept: { library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data', inbox: 'D:\\Model Depot\\Model Inbox',
+        comfy_plugins: ['ComfyUI-OpenWorkflow', 'ComfyUI-Anima-Artists'],
         comfy_user: 'D:\\Model Depot\\ComfyUI\\ComfyUI' } } : this.info);
     if (cmd === 'check') {
       const warn = /[^\x00-\x7f]/.test(args.install) ? [{ field: 'install', code: 'non_ascii' }] : [];

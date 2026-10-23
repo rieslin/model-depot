@@ -5,8 +5,16 @@
 - Requests are spaced out and never run in parallel.
 - The API key travels only in a header, only over https, and only to civitai's own two sites. Redirects are followed
   by hand so the key is never carried along to another host. It is never logged.
-- The system proxy is ignored (aiohttp's trust_env is off): the connection is direct, or goes through the proxy named
-  in the settings, also after a redirect.
+- aiohttp's own reading of proxy variables is off (trust_env): the route is the one the settings name, direct, through
+  a proxy, or through the proxy Windows is set to use (read at each request, netroute.py), also after a redirect.
+- Someone waiting (a model's page, its example images, a pasted link) is not kept waiting by a network that hangs:
+  those requests give up after a few seconds and are not tried again, and a host that failed is not asked again for a
+  minute (the answer is "unreachable" at once). On a friend's computer on 2026-10-18 every click waited minutes.
+  Once civitai is known to be unreachable (the library probes it at start and when a request fails), the program's
+  own requests (opening a model, example images, background work) are answered "unreachable" at once, with no further
+  attempts of its own: only what the user asks for by hand (Retry, a pasted link, a connection test) is tried (force),
+  and the next start or a change of the settings probes again (the user's rule, 2026-10-23: "once it is confirmed
+  unreachable, wait for a manual try or the next start").
 
 Downloads (measured 2026-10-02): <site>/api/download/models/<version>?fileId=<file> answers a request without the
 key, for a creator who requires a login, with 401 and a JSON message; with the key, with a 307 to a signed address
@@ -35,6 +43,11 @@ _RETRY_DELAYS = (3.0, 10.0)
 _MAX_REDIRECTS = 5
 # A download may take hours: no limit on the whole, but a stalled connection is given up after a minute.
 _STREAM_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=20, sock_read=60)
+# Someone is waiting: a model page is about 200 KB and civitai answers within a second or two when it can be reached.
+_QUICK_TIMEOUT = aiohttp.ClientTimeout(total=12, sock_connect=5, sock_read=6)
+# After a host could not be reached, requests someone waits for are answered "unreachable" at once for this long;
+# when two hosts are down together, the route itself is (a proxy that died, a VPN switched off), and all of them are.
+COOLDOWN = 60.0
 _CIVITAI_DOMAINS = ("civitai.com", "civitai.red", "civitai.green")
 
 
@@ -47,11 +60,12 @@ class CivitaiError(Exception):
     one) | not_a_file (a web page came back instead of the file)
     """
 
-    def __init__(self, code, detail="", status=None):
+    def __init__(self, code, detail="", status=None, keyed=False):
         super().__init__("%s %s" % (code, detail))
         self.code = code
         self.detail = detail
         self.status = status
+        self.keyed = keyed          # "auth": the API key went along (else civitai, or a gateway, refused the visit)
 
 
 class Throttle:
@@ -72,6 +86,10 @@ class Throttle:
 
 def _host(url):
     return (urlsplit(url).hostname or "").lower()
+
+
+def _netloc(url):
+    return (urlsplit(url).netloc or "").lower()
 
 
 def _is_civitai_host(url):
@@ -95,10 +113,10 @@ def _message(body):
 
 class CivitaiClient:
     def __init__(self, sites, token="", proxy=None, request_interval=2.0, image_interval=1.0, token_hosts=None,
-                 retry_delays=_RETRY_DELAYS, sample_interval=0.25, preview_interval=1.0):
+                 retry_delays=_RETRY_DELAYS, sample_interval=0.25, preview_interval=1.0, on_down=None, on_up=None):
         self.sites = [s.rstrip("/") for s in sites]
         self._token = token or ""
-        self.proxy = proxy or None
+        self._proxy_source = proxy      # an address, or a function giving the one to use now (the system's)
         self._api_throttle = Throttle(request_interval)
         self._image_throttle = Throttle(image_interval)
         # Example images are fetched while someone looks at the page, as civitai's own page would load them: closer
@@ -113,6 +131,81 @@ class CivitaiClient:
         self._site_netlocs = frozenset(urlsplit(s).netloc.lower() for s in self.sites)
         self._session = None
         self.requests_made = 0
+        self._down = {}                 # host[:port] -> time.monotonic() until which it counts as unreachable
+        self._preferred = None          # the site that answered last: asked first for a page or a link
+        self._last_ok = None            # time.time() of the last answer from civitai
+        self._last_seen = None          # time.time() of the last answer or failure
+        self._probe_throttle = Throttle(0)
+        self._on_down = on_down         # told when a host stops answering (the library then probes)
+        self._on_up = on_up             # told when civitai answers while it counted as unreachable
+        self.offline = False            # known unreachable: nothing is asked unless forced
+        self._recovering = False        # was offline; the user asked to try again
+
+    @property
+    def proxy(self):
+        source = self._proxy_source
+        return (source() if callable(source) else source) or None
+
+    # ---- who can be reached ----------------------------------------------------------------------------------------
+    def _cooling(self, host):
+        if self.offline:
+            return True
+        now = time.monotonic()
+        down = [h for h, until in self._down.items() if until > now]
+        return host in down or len(down) >= 2
+
+    def _note_down(self, host):
+        self._down[host] = time.monotonic() + COOLDOWN
+        self._last_seen = time.time()
+        if self._on_down is not None and not self.offline:
+            self._on_down()
+
+    def _note_up(self, url):
+        where = _netloc(url)
+        self._down.pop(where, None)
+        self._last_ok = self._last_seen = time.time()
+        if self.offline or self._recovering:
+            self.offline = self._recovering = False
+            self._down.clear()
+            if self._on_up is not None:
+                self._on_up()
+        for site in self.sites:
+            if _netloc(site) == where:
+                self._preferred = site
+
+    def reachability(self):
+        """{"state": "ok" | "down" | "unknown", "checked_at": time.time() of the last answer or failure}: down when it is
+        known unreachable, or every site failed within the last minute."""
+        now = time.monotonic()
+        down = self.offline or all(self._down.get(_netloc(s), 0) > now for s in self.sites)
+        state = "down" if down else ("ok" if self._last_ok else "unknown")
+        return {"state": state, "checked_at": self._last_seen}
+
+    def clear_down(self):
+        """Forget the failures (the route works again, as a connection test just showed)."""
+        self._down.clear()
+        if self.offline:
+            self._recovering = True
+        self.offline = False
+
+    async def probe(self):
+        """Ask each site for one small answer (the model list, one entry), at once, whatever the cooldown says. True when
+        any site answered; a site that failed counts as down for another minute."""
+        async def one(site):
+            try:
+                status, _ctype, _payload = await self._call("GET", site + "/api/v1/models?limit=1",
+                                                            throttle=self._probe_throttle, retry_delays=(), quick=True,
+                                                            force=True)
+            except CivitaiError as e:
+                return e.code in ("auth", "bad_request", "rate_limited")    # it answered: the route works
+            return status < 500
+        results = await asyncio.gather(*(one(site) for site in self.sites))
+        return any(results)
+
+    def unreachable(self):
+        """The hosts that failed within the last minute, with the seconds left before they are asked again."""
+        now = time.monotonic()
+        return {h: round(until - now) for h, until in self._down.items() if until > now}
 
     def _is_api(self, url):
         """Is this civitai itself (one of its domains, or a site from the settings), rather than its storage?"""
@@ -153,18 +246,21 @@ class CivitaiClient:
             return "token_rejected"
         return "key_not_sent" if self._token else "login_required"
 
-    async def _fetch(self, method, url, body=None, auth=True, limit=MAX_JSON_BYTES):
-        """One request, redirects followed by hand. Returns (status, content type, bytes, final url)."""
+    async def _fetch(self, method, url, body=None, auth=True, limit=MAX_JSON_BYTES, timeout=None):
+        """One request, redirects followed by hand. Returns (status, content type, bytes, final url, key sent)."""
         data = json.dumps(body).encode("utf-8") if body is not None else None
+        proxy = self.proxy
         for _ in range(_MAX_REDIRECTS + 1):
             headers = {"Accept": "application/json" if auth else "image/*"}
             if data is not None:
                 headers["Content-Type"] = "application/json"
-            if auth and self._token and self._may_carry_token(url):
+            carried = bool(auth and self._token and self._may_carry_token(url))
+            if carried:
                 headers["Authorization"] = "Bearer " + self._token
             self.requests_made += 1
-            async with self._get_session().request(method, url, data=data, headers=headers, proxy=self.proxy,
-                                                   allow_redirects=False) as resp:
+            extra = {"timeout": timeout} if timeout is not None else {}
+            async with self._get_session().request(method, url, data=data, headers=headers, proxy=proxy,
+                                                   allow_redirects=False, **extra) as resp:
                 if resp.status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
                     target = urljoin(url, resp.headers["Location"])
                     if resp.status == 303 or (resp.status in (301, 302) and method != "GET"):
@@ -178,23 +274,37 @@ class CivitaiClient:
                     if size > limit:
                         raise CivitaiError("too_large", _host(url), resp.status)
                     chunks.append(chunk)
-                return resp.status, resp.headers.get("Content-Type", ""), b"".join(chunks), url
+                return resp.status, resp.headers.get("Content-Type", ""), b"".join(chunks), url, carried
         raise CivitaiError("network", "too many redirects")
 
-    async def _call(self, method, url, body=None, auth=True, limit=MAX_JSON_BYTES, throttle=None, retry_delays=None):
-        """_fetch with the waiting and the retries: spaced out, tried again after a hiccup, never hammering."""
+    async def _call(self, method, url, body=None, auth=True, limit=MAX_JSON_BYTES, throttle=None, retry_delays=None,
+                    quick=False, force=False):
+        """_fetch with the waiting and the retries: spaced out, tried again after a hiccup, never hammering.
+
+        A host that failed within the last minute is not asked (CivitaiError "network" at once) unless `force` (the user
+        asked by hand). quick: someone is waiting; the request gives up after a few seconds, and a network failure is
+        not tried again."""
         throttle = throttle or self._api_throttle
         delays = self._retry_delays if retry_delays is None else tuple(retry_delays)
         attempts = len(delays) + 1
+        host, where = _host(url), _netloc(url)
+        if not force and self._cooling(where):
+            raise CivitaiError("network", "%s did not answer a moment ago" % host)
         last = None
         for attempt in range(attempts):
             await throttle.wait()
             try:
-                status, ctype, payload, final = await self._fetch(method, url, body, auth, limit)
+                status, ctype, payload, final, carried = await self._fetch(
+                    method, url, body, auth, limit, timeout=_QUICK_TIMEOUT if quick else None)
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last = CivitaiError("network", type(e).__name__)
-                log.warning("civitai %s %s: %s", method, _host(url), type(e).__name__)
+                self._note_down(where)
+                log.warning("civitai %s %s: %s", method, host, type(e).__name__)
+                if quick:
+                    break
             else:
+                if status < 400 or status == 404:
+                    self._note_up(url)
                 path = urlsplit(final).path
                 log.info("civitai %s %s%s -> %s (%d bytes)", method, _host(final), path, status, len(payload))
                 if status == 429:
@@ -202,7 +312,9 @@ class CivitaiClient:
                 elif status >= 500:
                     last = CivitaiError("server", _host(final), status)
                 elif status in (401, 403):
-                    raise CivitaiError("auth", _host(final), status)
+                    # civitai refuses a key with JSON; a page in HTML is a gateway's (or a proxy's) block page
+                    page = "html" in ctype.lower() or payload.lstrip()[:1] == b"<"
+                    raise CivitaiError("auth", _host(final), status, keyed=carried and not page)
                 elif status == 400:
                     raise CivitaiError("bad_request", _host(final), status)
                 else:
@@ -258,12 +370,13 @@ class CivitaiClient:
             remaining = [h for h in remaining if h not in found]
         return found, complete
 
-    async def fetch_image(self, url, interactive=False):
+    async def fetch_image(self, url, interactive=False, force=False):
         """The bytes of an image: a cover made in the background, or (interactive) an example image someone is
         waiting for. The API key is never sent with image requests."""
         if interactive:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
-                                                      throttle=self._sample_throttle, retry_delays=(1.0,))
+                                                      throttle=self._sample_throttle, retry_delays=(1.0,), quick=True,
+                                                      force=force)
         else:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
                                                       throttle=self._image_throttle)
@@ -276,20 +389,21 @@ class CivitaiClient:
         return payload
 
     # ---- reading a pasted link -------------------------------------------------------------------------------------
-    async def _get_object(self, path):
+    async def _get_object(self, path, force=False):
         """(site, JSON object) from the first site in the settings that knows `path`; a site that cannot be reached
         is passed over for the next. Someone is waiting, so the requests are spaced as for a page and tried again
         once, soon."""
-        quick = tuple(min(1.0, d) for d in self._retry_delays[:1])
+        soon = tuple(min(1.0, d) for d in self._retry_delays[:1])
         trouble = missing = None
-        for site in self.sites:
+        sites = sorted(self.sites, key=lambda s: s != self._preferred)      # the one that answered last, first
+        for site in sites:
             try:
                 status, ctype, payload = await self._call("GET", site + path, throttle=self._preview_throttle,
-                                                          retry_delays=quick)
+                                                          retry_delays=soon, quick=True, force=force)
             except CivitaiError as e:
-                if e.code in ("auth", "bad_request"):
+                if e.code == "bad_request":
                     raise
-                trouble = trouble or e
+                trouble = e if e.code == "auth" or trouble is None else trouble     # a refusal says most
                 continue
             if status == 404:
                 missing = CivitaiError("not_found", path, status)
@@ -307,13 +421,13 @@ class CivitaiClient:
             return site, data
         raise trouble or missing or CivitaiError("not_found", path)
 
-    async def get_model(self, model_id):
+    async def get_model(self, model_id, force=False):
         """(site, model object with every version, its files and its example images)."""
-        return await self._get_object("/api/v1/models/%d" % int(model_id))
+        return await self._get_object("/api/v1/models/%d" % int(model_id), force)
 
-    async def get_version(self, version_id):
+    async def get_version(self, version_id, force=False):
         """(site, model-version object): used to find the model a version link belongs to."""
-        return await self._get_object("/api/v1/model-versions/%d" % int(version_id))
+        return await self._get_object("/api/v1/model-versions/%d" % int(version_id), force)
 
     # ---- downloading -----------------------------------------------------------------------------------------------
     @contextlib.asynccontextmanager

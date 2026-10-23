@@ -9,7 +9,7 @@
 
 Model Depot 是本机图像生成模型的管理程序。它清点电脑上的 Checkpoint、扩散模型、LoRA、VAE 等模型文件，凭文件指纹与 [civitai](https://civitai.com) 核对每个文件的来源，从 civitai 下载和更新模型，并为每个模型保存一张推荐参数资料卡。[ComfyUI](https://github.com/Comfy-Org/ComfyUI) 等出图程序可经本地接口读取模型清单与推荐参数。全部数据保存在本机。
 
-版本 0.6.1 · 提供 Windows 应用与 Windows 安装包 · 中英文界面 · [GNU GPL 3.0](LICENSE)
+版本 0.6.2 · 提供 Windows 应用与 Windows 安装包 · 中英文界面 · [GNU GPL 3.0](LICENSE)
 
 ## 功能
 
@@ -28,7 +28,9 @@ Model Depot 是本机图像生成模型的管理程序。它清点电脑上的 C
 
 **下载与更新**
 - 在模型库中任意位置粘贴一个或多个 civitai 链接，选择版本与文件，确认或修改建议的存放位置后加入队列。
-- 队列一次下载一个文件，中断或重启后从断点继续；文件指纹与 civitai 的记录一致后才收入模型库，不覆盖已有文件。
+- Hugging Face 上单个文件的链接同样可以读取：文本编码器、VAE、SeedVR2 与 ComfyUI 官方文件多发布在那里。存放位置按文件在仓库中的路径建议。
+- 队列一次下载一个文件，中断或重启后从断点继续；文件指纹与 civitai 的记录（或 Hugging Face 公布的指纹）一致后才收入模型库，不覆盖已有文件。
+- `GET /api/v1/companions` 列出各基础模型系列在模型之外所需的文件（文本编码器、VAE 等），附官方下载地址与指纹，并注明模型库中有无。
 - 手动检查更新：在模型的 civitai 页面上找出同一模型的新版本，并与作者放在同一页面的其他条目区分开。
 
 **整理**
@@ -42,7 +44,7 @@ Model Depot 是本机图像生成模型的管理程序。它清点电脑上的 C
 
 ### 用 Windows 安装包安装
 
-安装包一并装入 Model Depot 及其自用的 Python、含插件与工作流的 ComfyUI 便携版、本地语言模型的运行程序 llama.cpp，以及 PixAI 打标模型，安装过程无需联网。本机已装有 ComfyUI 便携版时，安装程序可直接沿用，不再另装一份：该 ComfyUI 的原有文件不变，工作流放入其工作流列表中的「Model Depot」文件夹，缺少的插件在安装时列出，可经 ComfyUI 管理器安装。安装时选择安装位置、模型库位置与 Model Depot 的数据文件夹。安装包不含模型文件：将模型文件放入安装包旁的 `models` 文件夹，Model Depot 首次启动时列出各文件将移入的位置，确认后移入模型库。
+安装包一并装入 Model Depot 及其自用的 Python、含插件与工作流的 ComfyUI 便携版、本地语言模型的运行程序 llama.cpp，以及 PixAI 打标模型，安装过程无需联网。本机已装有 ComfyUI 便携版时，安装程序可直接沿用，不再另装一份：该 ComfyUI 的原有文件不变，工作流放入其工作流列表中的「Model Depot」文件夹，缺少的插件在安装时列出，可经 ComfyUI 管理器安装。安装时选择安装位置、模型库位置与 Model Depot 的数据文件夹。安装包不含模型文件：将模型文件放入安装包旁的 `Model Inbox` 文件夹，Model Depot 首次启动时列出各文件将移入的位置，确认后移入模型库。自带的 ComfyUI 只带少数插件，每个都有用途（GGUF 格式模型所需的 ComfyUI-GGUF、PixAI 打标、Impact Pack 与 Subpack、controlnet_aux），并附 ComfyUI 与 llama.cpp 所需的 Visual C++ 运行库文件。运行新版安装包即在原位置更新；ComfyUI 的设置、启动脚本、其他程序或手动安装的插件，以及修改过的工作流均保留。卸载只删除安装包自带的插件。
 
 系统要求：Windows 10 或 11；NVIDIA RTX 20 系列或更新的显卡，驱动 580 或更新；约 9 GB 可用空间，模型另需空间。安装程序未经数字签名，首次运行时 Windows 可能要求确认。
 
@@ -60,7 +62,7 @@ python run.py --stop     # 停止
 python run.py --check    # 检查当前 Python 能否运行 Model Depot
 ```
 
-页面地址为 http://127.0.0.1:8194/。首次打开时，设置向导依次设置界面语言、模型文件夹（本机装有 ComfyUI 时可直接读取）、网络连接（直连或经代理），以及可选的 civitai API 密钥；只有作者要求登录的模型才需要该密钥。
+页面地址为 http://127.0.0.1:8194/。首次打开时，设置向导依次设置界面语言、模型文件夹（本机装有 ComfyUI 时可直接读取）、网络连接（默认使用系统代理，也可直接连接或填写代理；「测试连接」可查看连不上 civitai 时卡在哪一步），以及可选的 civitai API 密钥；只有作者要求登录的模型才需要该密钥。
 
 ### Windows 应用
 
@@ -70,7 +72,8 @@ python run.py --check    # 检查当前 Python 能否运行 Model Depot
 
 - Model Depot 默认只监听 127.0.0.1。若要允许其他设备调用接口，须在 `config.json` 中修改 `server.host`，并启用 `remote_access`，设置不少于 8 个字符的访问密钥。
 - 识别模型、读取模型页与下载文件时访问 civitai.com、civitai.red 及 civitai 的图片服务器；请求刻意放慢，结果缓存。civitai API 密钥只发送给 civitai.com 与 civitai.red。
-- 在设置中选择安装本地语言模型时，从 GitHub 下载 llama.cpp 的发布版本，从 Hugging Face 下载模型文件。除此之外不访问其他地址，也不上报任何信息。
+- 连不上 civitai 时，Model Depot 在启动时与请求失败后各探测一次；确认连不上后，按已保存的资料离线使用，不再自行访问，直到手动重试、修改网络设置或重新启动。
+- 粘贴 Hugging Face 文件链接时访问 Hugging Face；在设置中选择安装本地语言模型时，从 GitHub 下载 llama.cpp 的发布版本，从 Hugging Face 下载模型文件。除此之外不访问其他地址，也不上报任何信息。
 - Model Depot 不审核内容。按分级隐藏封面只是显示上的偏好，可以关闭。
 
 ## 数据

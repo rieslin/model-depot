@@ -26,7 +26,7 @@ import time
 
 import aiohttp
 
-from . import families, folders, intake as intake_mod, kinds, trash, version_info
+from . import families, folders, hfhub, intake as intake_mod, kinds, trash, version_info
 from .civitai import CivitaiError
 
 log = logging.getLogger("depot.downloads")
@@ -263,6 +263,41 @@ class Downloads:
             self._kick()
         return {"added": added, "skipped": skipped}
 
+    async def add_url(self, url, folder, comfy_type=None):
+        """Queue one Hugging Face file. Returns {"added": [ids], "skipped": [...]}, as add() does."""
+        link = hfhub.parse(str(url or ""))
+        if link.get("error"):
+            raise AddError("bad_request")
+        try:
+            info = await hfhub.head(link["hf"], proxy=self.cfg.proxy())
+        except hfhub.HFError as e:
+            raise AddError("hf", code=e.code) from e
+        try:
+            dest_dir = folders.check_destination(self.cfg, folder)
+        except ValueError as e:
+            raise AddError("folder_" + str(e)) from e
+        fid = hfhub.file_id(link["hf"])
+        name = folders.safe_name(link["name"], "download.safetensors")
+        sha = info.get("sha256")
+        present = self.library.present_by_hash()
+        if sha and sha in present:
+            return {"added": [], "skipped": [{"file_id": fid, "reason": "in_library", "name": present[sha]}]}
+        if self.db.dl_active_for_file(fid):
+            return {"added": [], "skipped": [{"file_id": fid, "reason": "queued", "name": name}]}
+        ctype = comfy_type or hfhub.guess_type(link["path"]) or hfhub.type_of_folder(self.cfg, dest_dir)
+        path = folders.unique_path(dest_dir, name, self.db.dl_active_paths())
+        download_id = self.db.dl_insert({
+            "state": "queued", "site": hfhub.SITE, "model_id": 0, "version_id": 0, "file_id": fid,
+            "title": name, "version_name": link["repo"], "model_type": None, "comfy_type": ctype,
+            "family": families.UNKNOWN, "base_model": None, "file_name": link["name"],
+            "dest_dir": dest_dir, "dest_name": os.path.basename(path),
+            "expected_sha256": sha, "expected_bytes": info.get("bytes"), "cover_index": None, "cover_level": None,
+            "version_json": "{}", "url": link["hf"],
+        })
+        self._changed(download_id)
+        self._kick()
+        return {"added": [download_id], "skipped": []}
+
     # ---- what someone can do ---------------------------------------------------------------------------------------
     def pause(self, download_id):
         row = self._need(download_id)
@@ -341,7 +376,9 @@ class Downloads:
             "attempts": row["attempts"], "next_try_at": row["next_try_at"],
             "error": row["error"], "error_detail": row["error_detail"],
             "sha256": row["sha256"], "final_path": row["final_path"], "checked": bool(row["expected_sha256"]),
-            "civitai_url": "%s/models/%s?modelVersionId=%s" % (row["site"], row["model_id"], row["version_id"]),
+            "source": "hf" if row["url"] else "civitai",
+            "civitai_url": row["url"].replace("/resolve/", "/blob/", 1) if row["url"] else
+                           "%s/models/%s?modelVersionId=%s" % (row["site"], row["model_id"], row["version_id"]),
             "cover": "/api/ui/intake/versions/%d/images/%d" % (row["version_id"], row["cover_index"])
                      if row["cover_index"] is not None else None,
             "cover_level": row["cover_level"],
@@ -355,7 +392,7 @@ class Downloads:
     def version_object(self, version_id):
         """The version JSON a download keeps, for its example image after the preview is gone."""
         for row in self.db.dl_list():
-            if row["version_id"] == version_id:
+            if row["version_id"] == version_id and not row["url"]:
                 try:
                     return json.loads(row["version_json"])
                 except ValueError:
@@ -481,12 +518,18 @@ class Downloads:
         except OSError as e:
             raise Failed("disk", str(e), transient=False) from e
         live["done"] = offset
-        url = "%s/api/download/models/%d?fileId=%d" % (row["site"], row["version_id"], row["file_id"])
         try:
-            async with self.library.client().open_download(url, start=offset) as resp:
-                total = await self._begin(row, resp, sink, live)
-                if total is None or sink.size < total:
-                    await self._receive(download_id, resp, sink, live, total, dest_dir)
+            if row["url"]:
+                async with self._open_direct(row["url"], offset) as resp:
+                    total = await self._begin(row, resp, sink, live)
+                    if total is None or sink.size < total:
+                        await self._receive(download_id, resp, sink, live, total, dest_dir)
+            else:
+                url = "%s/api/download/models/%d?fileId=%d" % (row["site"], row["version_id"], row["file_id"])
+                async with self.library.client().open_download(url, start=offset) as resp:
+                    total = await self._begin(row, resp, sink, live)
+                    if total is None or sink.size < total:
+                        await self._receive(download_id, resp, sink, live, total, dest_dir)
         except CivitaiError as e:
             raise Failed(e.code, e.detail) from e
         except aiohttp.ClientError as e:
@@ -518,12 +561,47 @@ class Downloads:
             record = json.loads(row["version_json"])
         except ValueError:
             record = None
-        if isinstance(record, dict):
+        if isinstance(record, dict) and record:
             record = await self._with_example_settings(row, record)
             self.library.adopt_download(final, digest, record, row["site"], st.st_size, st.st_mtime_ns)
         else:
             self.library.request_scan()
         return final, digest
+
+    def _open_direct(self, url, start):
+        """A direct address (a Hugging Face file), from byte `start`, through the route the settings name. Hugging Face
+        redirects to its storage, which serves byte ranges; no key is sent anywhere."""
+        outer = self
+
+        class _Open:
+            async def __aenter__(self):
+                self.session = aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(
+                    total=None, sock_connect=20, sock_read=60), headers={"User-Agent": "ModelDepot"})
+                headers = {"Range": "bytes=%d-" % start} if start > 0 else {}
+                try:
+                    self.resp = await self.session.get(url, headers=headers, proxy=outer.cfg.proxy())
+                except BaseException:
+                    await self.session.close()
+                    raise
+                status = self.resp.status
+                if status in (200, 206, 416):
+                    return self.resp
+                self.resp.release()
+                await self.session.close()
+                if status in (401, 403):
+                    raise Failed("hf_login", str(status), transient=False)
+                if status == 404:
+                    raise Failed("not_found", url, transient=False)
+                if status == 429:
+                    raise Failed("rate_limited", "429")
+                raise Failed("server" if status >= 500 else "bad_request", str(status), transient=status >= 500)
+
+            async def __aexit__(self, *exc):
+                self.resp.release()
+                await self.session.close()
+                return False
+
+        return _Open()
 
     async def _with_example_settings(self, row, record):
         """The version as civitai's version API gives it, which keeps the settings each example image was made with

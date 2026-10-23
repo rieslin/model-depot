@@ -10,7 +10,8 @@ import stat
 from . import kinds, sidecar, sniff
 
 _CONTENT_TYPE = {"checkpoint": "checkpoints", "diffusion_model": "diffusion_models", "lora": "loras", "vae": "vae",
-                 "text_encoder": "text_encoders", "embedding": "embeddings", "controlnet": "controlnet"}
+                 "text_encoder": "text_encoders", "embedding": "embeddings", "controlnet": "controlnet",
+                 "upscaler": "upscale_models", "model_patch": "model_patches"}
 
 
 def _real_key(path):

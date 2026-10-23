@@ -120,7 +120,14 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "CheckpointLoaderSimple"
+        "Node name for S&R": "CheckpointLoaderSimple",
+        "models": [
+          {
+            "name": "waiIllustriousSDXL_v170.safetensors",
+            "url": "https://civitai.com/api/download/models/2883731",
+            "directory": "checkpoints"
+          }
+        ]
       },
       "widgets_values": [
         "waiIllustriousSDXL_v170.safetensors"

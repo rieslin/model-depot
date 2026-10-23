@@ -33,6 +33,8 @@ export function renderSetup(root, ctx) {
     endpointKey: '',
   };
   const messages = { detect: null, add: null, env: null, save: null, probe: null, install: null };
+  let system = null;            // the proxy Windows is set to use (/api/ui/network), shown beside "use the system proxy"
+  let netTest = null;           // the last connection test: { busy } or its result, or { error }
   let reader = null;            // what /api/ui/reader says: the card, the recommendation, a download under way
   let readerTimer = null;
   let statusNode = null;        // the local model's state, refreshed in place while the page is open (no redraw of the form)
@@ -209,6 +211,71 @@ export function renderSetup(root, ctx) {
       messages.save = { text: [e.message, details].filter(Boolean).join(' '), cls: 'bad' };
       draw();
     }
+  }
+
+  // ---- the network route, and the connection test --------------------------------------------------------------
+  const NET_FAIL = { name: 'setup.net_fail_name', proxy_name: 'setup.net_fail_proxy_name',
+    connect_timeout: 'setup.net_fail_connect_timeout', connect_refused: 'setup.net_fail_connect_refused',
+    proxy_connect_timeout: 'setup.net_fail_proxy_connect_timeout', proxy_refused: 'setup.net_fail_proxy_refused',
+    proxy_said_no: 'setup.net_fail_proxy_said_no', tls: 'setup.net_fail_tls', tls_timeout: 'setup.net_fail_tls_timeout',
+    no_answer: 'setup.net_fail_no_answer', proxy_no_answer: 'setup.net_fail_proxy_no_answer', broken: 'setup.net_fail_broken', refused: 'setup.net_fail_refused',
+    busy: 'setup.net_fail_busy', server: 'setup.net_fail_server', not_data: 'setup.net_fail_not_data' };
+  const NET_STEPS = [['resolve', 'setup.net_step_resolve'], ['connect', 'setup.net_step_connect'], ['tls', 'setup.net_step_tls'],
+    ['answer', 'setup.net_step_answer']];
+
+  async function loadSystem() {
+    try {
+      system = (await api('GET', '/api/ui/network')).system;
+    } catch (e) {
+      system = null;
+    }
+    if (root.isConnected) draw();
+  }
+
+  async function testNet() {
+    netTest = { busy: true };
+    draw();
+    try {
+      netTest = await api('POST', '/api/ui/network/test', { mode: form.netMode, proxy: form.proxy });
+      system = netTest.system;
+    } catch (e) {
+      netTest = { error: e.message };
+    }
+    if (root.isConnected) draw();
+  }
+
+  function systemLine() {
+    if (!system) return null;
+    if (system.proxy) return h('p', { class: 'dim indent' }, t(system.from_pac ? 'setup.net_system_pac_proxy' : 'setup.net_system_now', { proxy: system.proxy }));
+    if (system.pac) return h('p', { class: 'warn indent' }, t('setup.net_system_pac'));
+    if (system.socks_only) return h('p', { class: 'warn indent' }, t('setup.net_system_socks'));
+    return h('p', { class: 'dim indent' }, t('setup.net_system_none'));
+  }
+
+  function netResults() {
+    if (!netTest) return null;
+    if (netTest.busy) return h('p', { class: 'dim', role: 'status' }, t('setup.net_testing'));
+    if (netTest.error) return h('p', { class: 'bad', role: 'status' }, netTest.error);
+    const cell = (step) => {
+      if (!step || step.state === 'skipped') return h('td', { class: 'dim' }, t('setup.net_skipped'));
+      return h('td', { class: step.state === 'ok' ? 'good' : 'bad' }, t(step.state === 'ok' ? 'setup.net_ok' : 'setup.net_failed'));
+    };
+    const rows = netTest.results.map((r) => {
+      const steps = new Map(r.steps.map((s) => [s.step, s]));
+      return h('tr', null, h('td', null, r.site), NET_STEPS.map(([name]) => cell(steps.get(name))),
+        h('td', { class: r.ok ? 'good' : 'bad' }, r.ok ? t('setup.net_reached', { s: Math.max(0.1, r.ms / 1000).toFixed(1) }) : t('setup.net_failed')));
+    });
+    const failures = netTest.results.filter((r) => !r.ok).map((r) => h('p', { class: 'bad' },
+      r.site + ' · ' + t(NET_FAIL[r.code] || 'setup.net_fail_broken', { status: r.status || '' })));
+    const hint = netTest.mode === 'direct' && failures.length && netTest.system && netTest.system.proxy
+      ? h('p', null, t('setup.net_hint_system', { proxy: netTest.system.proxy })) : null;
+    return h('div', { class: 'note', role: 'status' },
+      h('p', { class: 'dim' }, netTest.proxy ? t('setup.net_tested_proxy', { proxy: netTest.proxy }) : t('setup.net_tested_direct')),
+      h('table', { class: 'tiers' },
+        h('thead', null, h('tr', null, h('th', null, t('setup.net_col_site')), NET_STEPS.map(([, key]) => h('th', null, t(key))),
+          h('th', null, t('setup.net_col_result')))),
+        h('tbody', null, rows)),
+      failures, hint);
   }
 
   const note = (m) => (m ? h('p', { class: m.cls }, m.text) : null);
@@ -441,11 +508,15 @@ export function renderSetup(root, ctx) {
 
       h('h2', null, t('setup.network')),
       h('div', { class: 'choices' },
-        radio('net', 'direct', form.netMode, t('setup.net_direct'), (v) => { form.netMode = v; }),
-        radio('net', 'proxy', form.netMode, t('setup.net_proxy'), (v) => { form.netMode = v; }),
+        radio('net', 'system', form.netMode, t('setup.net_system'), (v) => { form.netMode = v; netTest = null; }),
+        form.netMode === 'system' ? systemLine() : null,
+        radio('net', 'direct', form.netMode, t('setup.net_direct'), (v) => { form.netMode = v; netTest = null; }),
+        radio('net', 'proxy', form.netMode, t('setup.net_proxy'), (v) => { form.netMode = v; netTest = null; }),
         form.netMode === 'proxy' ? h('div', { class: 'field indent' },
           h('input', { type: 'text', value: form.proxy, placeholder: 'http://127.0.0.1:7890',
             oninput: (e) => { form.proxy = e.target.value; } })) : null),
+      h('div', { class: 'actions' }, h('button', { disabled: Boolean(netTest && netTest.busy), onclick: testNet }, t('setup.net_test'))),
+      netResults(),
 
       ctx.firstRun ? null : readerSection(),
 
@@ -461,5 +532,9 @@ export function renderSetup(root, ctx) {
   }
 
   draw();
+  loadSystem();
   if (!ctx.firstRun) loadReader();
+  // a first start after the Windows setup: the folders came from install.json without their file counts, and the
+  // ones that do not exist were not marked; reading ComfyUI again shows both, and keeps the ticks as they were
+  else if (form.comfyDir && form.folders.length) detect();
 }

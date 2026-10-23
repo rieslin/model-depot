@@ -9,6 +9,9 @@ const STATUS_KEYS = { civitai: 'inv.status_civitai', local: 'inv.status_local', 
 const STATUS_CLASS = { civitai: 'good', local: 'good', no_check: 'dim', unidentified: 'warn', waiting: 'dim', error: 'bad' };
 // Files of other kinds (detection and face-swap models of custom nodes and the like) are not shown anywhere, here
 // neither: the counts below leave them out too. The program still keeps them in its index.
+// civitai's trouble in words, not codes
+const WHY = { network: 'inv.why_network', rate_limited: 'inv.why_rate_limited', server: 'inv.why_server', auth: 'inv.why_auth' };
+const why = (code) => t(WHY[code] || 'inv.why_other');
 const KIND_ORDER = ['checkpoint', 'diffusion_model', 'lora', 'embedding', 'vae', 'text_encoder', 'upscaler', 'controlnet'];
 const HIDDEN_KIND = 'other';
 
@@ -134,7 +137,7 @@ export function renderInventory(root) {
     lines.push(h('p', null, h('b', null, t('inv.civitai') + ' '),
       t('inv.civitai_counts', { found: civ.found, not_found: civ.not_found, bundled: civ.bundled, pending: civ.pending }),
       civ.running ? ' ' + t('inv.civitai_running') : '',
-      civ.last_error ? h('span', { class: 'bad' }, ' ' + t('inv.civitai_error', { code: civ.last_error })) : null,
+      civ.last_error ? h('span', { class: 'bad' }, ' ' + t('inv.civitai_error', { code: why(civ.last_error) })) : null,
       civ.waiting_until ? h('span', { class: 'dim' }, ' ' + t('inv.civitai_retry', { time: new Date(civ.waiting_until * 1000).toLocaleTimeString() })) : null));
     // covers
     lines.push(h('p', null, h('b', null, t('inv.covers') + ' '), t('inv.covers_counts', { ready: p.covers.ready, failed: p.covers.failed }),
@@ -149,7 +152,7 @@ export function renderInventory(root) {
         : t(needs.reader_ready ? 'inv.fill_needs' : 'inv.fill_needs_rules', needs);
     }
     const last = fl.running || !fl.finished_at ? null
-      : fl.error ? h('span', { class: 'bad' }, t('inv.fill_error', { code: fl.error }))
+      : fl.error ? h('span', { class: 'bad' }, t('inv.fill_error', { code: why(fl.error) }))
         : t(fl.stopped ? 'inv.fill_stopped' : 'inv.fill_done', { time: new Date(fl.finished_at * 1000).toLocaleTimeString() });
     lines.push(h('div', { class: 'bar' }, h('b', null, t('inv.fill')), state,
       fl.running
@@ -177,7 +180,7 @@ export function renderInventory(root) {
       const minutes = Math.max(1, Math.ceil((up.pages || 0) * 2 / 60));
       const when = up.checked_at ? new Date(up.checked_at * 1000).toLocaleString() : null;
       const about = up.running ? null
-        : up.error ? h('span', { class: 'bad' }, t('inv.updates_error', { code: up.error }))
+        : up.error ? h('span', { class: 'bad' }, t('inv.updates_error', { code: why(up.error) }))
           : up.stopped && up.finished_at ? t('inv.updates_stopped', { time: new Date(up.finished_at * 1000).toLocaleTimeString() })
             : when ? t('inv.updates_last', { time: when, pages: up.pages, minutes }) : t('inv.updates_first', { pages: up.pages, minutes });
       const tail = [about, up.failed && !up.running ? t('inv.updates_failed', { n: up.failed }) : null].filter(Boolean);

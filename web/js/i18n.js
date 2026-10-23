@@ -1,6 +1,6 @@
 // Interface text. The table lives on the server (depot/strings.py): every line has a Chinese and an English column.
 
-let lang = 'zh';
+let lang = '';         // none until the settings have been read: the first request must not ask for a language
 let langs = ['zh', 'en'];
 let table = {};
 

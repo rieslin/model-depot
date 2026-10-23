@@ -25,7 +25,7 @@ from aiohttp import web
 
 from . import API_VERSION, APP_NAME, __version__, card_samples, comfy, config as config_mod, folders, kinds, links
 from . import inbox as inbox_mod
-from . import llm_install, paths as paths_mod, reader as reader_mod, scan, sniff
+from . import hfhub, llm_install, netroute, nettest, paths as paths_mod, reader as reader_mod, scan, sniff
 from .cards import CardError
 from .civitai import CivitaiError
 from .downloads import AddError
@@ -47,10 +47,21 @@ def _civitai_api_error(e):
     if e.code == "not_found":
         return ApiError(404, "not_found", "err.civitai_not_found")
     if e.code == "auth":
+        if not getattr(e, "keyed", False):     # no key went along: civitai, or a gateway on the way, refused the visit
+            return ApiError(502, "civitai_refused", "err.civitai_refused")
         return ApiError(502, "civitai_auth", "err.civitai_auth")
     if e.code in ("not_json", "too_large", "bad_request"):
         return ApiError(502, "civitai_bad", "err.civitai_bad")
     return ApiError(502, "civitai_unreachable", "err.civitai_unreachable")
+
+
+def _hf_api_error(code):
+    """An ApiError for a Hugging Face failure while reading or adding a link."""
+    if code == "login":
+        return ApiError(403, "hf_login", "err.hf_login")
+    if code == "not_found":
+        return ApiError(404, "not_found", "err.hf_not_found")
+    return ApiError(502, "hf_unreachable", "err.hf_unreachable")
 
 
 def _size(n):
@@ -174,6 +185,7 @@ class Server:
         app = web.Application(middlewares=[guard], client_max_size=4 * 1024 * 1024)
         r = app.router
         r.add_get("/api/v1/status", self.api_status)
+        r.add_get("/api/v1/companions", self.api_companions)
         r.add_get("/api/v1/models", self.api_models)
         r.add_get("/api/v1/models/lookup", self.api_lookup)
         r.add_get("/api/v1/models/{sha256}", self.api_model)
@@ -200,6 +212,8 @@ class Server:
         r.add_post("/api/ui/detect", self.ui_detect)
         r.add_post("/api/ui/check-folder", self.ui_check_folder)
         r.add_post("/api/ui/check-env", self.ui_check_env)
+        r.add_get("/api/ui/network", self.ui_network)
+        r.add_post("/api/ui/network/test", self.ui_network_test)
         r.add_put("/api/ui/config", self.ui_save_config)
         r.add_get("/api/ui/progress", self.ui_progress)
         r.add_get("/api/ui/inventory", self.ui_inventory)
@@ -251,7 +265,20 @@ class Server:
     # ---- /api/v1 ---------------------------------------------------------------------------------------------------
     async def api_status(self, request):
         return web.json_response({"app": APP_NAME, "version": __version__, "api": API_VERSION,
-                                  "configured": self.cfg.configured, "library": self.library.status()})
+                                  "configured": self.cfg.configured, "library": self.library.status(),
+                                  "civitai": self.library.reachable()})
+
+    async def api_companions(self, request):
+        """The files each base model family needs beside its model (text encoder, VAE, ...), with the official download
+        address, folder, size and fingerprint (depot/companions.json), and whether the library has each (by
+        fingerprint). ?family= narrows it to some families (comma-separated)."""
+        wanted = {f.strip() for f in request.query.get("family", "").split(",") if f.strip()}
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "companions.json"), encoding="utf-8") as f:
+            table = json.load(f)
+        present = self.library.present_by_hash()
+        files = [dict(row, in_library=present.get(row["sha256"]) if row.get("sha256") else None)
+                 for row in table["files"] if not wanted or row["family"] in wanted]
+        return web.json_response({"checked": table.get("checked"), "files": files})
 
     async def api_models(self, request):
         def listed(name):
@@ -495,6 +522,26 @@ class Server:
         _value, problem = config_mod.read_env_var(path, name)
         return web.json_response({"ok": problem is None, "problem": problem})
 
+    async def ui_network(self, request):
+        """What Windows is set to use as its proxy, for the settings page to show beside "use the system proxy"."""
+        return web.json_response({"system": netroute.read(force=True)})
+
+    async def ui_network_test(self, request):
+        """Try the route the settings page shows (not yet saved): every civitai site, step by step."""
+        body = await self._json_body(request)
+        mode = body.get("mode") if body.get("mode") in config_mod.NETWORK_MODES else "system"
+        proxy = config_mod.normal_proxy(body.get("proxy"))
+        if mode == "proxy" and proxy.lower().startswith("socks"):
+            raise ApiError(400, "bad_request", "problem.proxy_socks")
+        if mode == "proxy" and not re.match(r"^https?://[^\s/]+", proxy, re.I):
+            raise ApiError(400, "bad_request", "problem.proxy_bad")
+        system = netroute.read(force=True)
+        route = config_mod.route_proxy(mode, proxy)
+        results = await nettest.check(self.cfg.data["civitai"]["sites"], route)
+        if any(r["ok"] for r in results) and route == self.cfg.proxy():
+            self.library.route_works()          # the saved route works: stop answering "unreachable"
+        return web.json_response({"mode": mode, "proxy": route, "system": system, "results": results})
+
     async def ui_save_config(self, request):
         body = await self._json_body(request)
         allowed = ("language", "folders", "comfyui", "civitai", "network", "hashing", "setup_done", "reader")
@@ -663,8 +710,11 @@ class Server:
             index = int(request.match_info["index"])
         except ValueError as e:
             raise ApiError(404, "not_found", "err.sample_not_found") from e
+        # ?retry=: the user pressed Retry, so civitai is asked even while it counts as unreachable; ?cached=1: only the
+        # copy kept here, never a request to civitai (other programs list many images at once)
         try:
-            path = await self.library.sample_thumbnail(sha, index)
+            path = await self.library.sample_thumbnail(sha, index, force=bool(request.query.get("retry")),
+                                                       cached_only=request.query.get("cached") in ("1", "true"))
         except LookupError as e:
             raise ApiError(404, "not_found", "err.sample_not_found") from e
         except (CivitaiError, OSError, ValueError) as e:
@@ -680,7 +730,7 @@ class Server:
         if not self.cfg.configured:
             raise ApiError(409, "not_configured")
         try:
-            page = await self.library.read_page(sha, refresh=bool(body.get("refresh")))
+            page = await self.library.read_page(sha, refresh=bool(body.get("refresh")), force=bool(body.get("retry")))
         except CivitaiError as e:
             log.info("model page for %s could not be read: %s", sha[:12], e.code)
             raise _civitai_api_error(e) from e
@@ -903,6 +953,17 @@ class Server:
             out.append(item)
         return web.json_response({"links": out, "limit": links.MAX_LINKS})
 
+    async def _hf_preview(self, url):
+        """A Hugging Face file, in the shape of a civitai preview (hfhub.describe)."""
+        link = hfhub.parse(url)
+        if link.get("error"):
+            raise ApiError(400, "bad_request", "link.hf_not_file")
+        try:
+            info = await hfhub.head(link["hf"], proxy=self.cfg.proxy())
+        except hfhub.HFError as e:
+            raise _hf_api_error(e.code) from e
+        return hfhub.describe(link, info, self.library.present_by_hash(), self.intake.queued_files(), self.intake.suggest)
+
     def _preview_urls(self, preview):
         for version in preview["versions"]:
             for image in version["images"]:
@@ -912,6 +973,8 @@ class Server:
     async def ui_intake_preview(self, request):
         self._need_downloads()
         body = await self._json_body(request)
+        if body.get("hf"):
+            return web.json_response(await self._hf_preview(str(body["hf"])))
         try:
             preview = await self.intake.preview(body.get("model_id"), body.get("version_id"), body.get("file_id"))
         except CivitaiError as e:
@@ -998,9 +1061,14 @@ class Server:
         lang = self.lang(request)
         try:
             retire = body.get("retire") if isinstance(body.get("retire"), list) else None
-            result = await self.downloads.add(body.get("model_id"), body.get("version_id"), body.get("file_ids"),
-                                              body.get("folder"), retire=retire)
+            if body.get("hf"):
+                result = await self.downloads.add_url(body.get("hf"), body.get("folder"), body.get("comfy_type"))
+            else:
+                result = await self.downloads.add(body.get("model_id"), body.get("version_id"), body.get("file_ids"),
+                                                  body.get("folder"), retire=retire)
         except AddError as e:
+            if e.code == "hf":
+                raise _hf_api_error(e.params.get("code")) from e
             if e.code == "civitai":
                 raise _civitai_api_error(CivitaiError(e.params.get("code") or "network")) from e
             if e.code == "not_found":

@@ -19,6 +19,7 @@ let state = null;
 let library = null;
 let intake = null;
 let shown = null;           // the view on screen
+let previewLang = false;    // the settings page shows a language that is not saved yet
 
 async function loadState() {
   state = await api('GET', '/api/ui/state');
@@ -79,7 +80,24 @@ function teardown() {
 }
 
 function draw() {
+  // #/download?link=<address>: another program (or a bookmark) asks for the download drawer with this link read
+  if (location.hash.startsWith('#/download')) {
+    const link = new URLSearchParams(location.hash.split('?')[1] || '').get('link');
+    location.hash = '#/';
+    if (link && intake) setTimeout(() => intake.readLink(link), 0);
+    return;
+  }
   const r = route();
+  if (previewLang && r.view !== 'settings') {
+    // left the settings without saving: back to the saved language
+    previewLang = false;
+    if (state.language && currentLang() !== state.language) {
+      setLang(state.language);
+      setTagline(null);
+      if (intake) intake.relabel();
+      mountWindowButtons();
+    }
+  }
   if (r.view === 'library' && shown === 'library' && library) {
     if (r.sha) library.select(r.sha, { scroll: true });
     else library.deselect();
@@ -108,10 +126,20 @@ function draw() {
     state,
     lang: currentLang(),
     firstRun: r.view === 'setup',
-    setLanguage: (value) => { setLang(value); drawNav(r.view); },
+    setLanguage: (value) => {
+      setLang(value);
+      previewLang = r.view === 'settings';
+      setTagline(null);
+      drawNav(r.view);
+      if (intake) intake.relabel();
+      mountWindowButtons();
+    },
     onSaved: async () => {
       await loadState();
+      previewLang = false;
       setLang(state.language);
+      if (intake) intake.relabel();
+      mountWindowButtons();
       teardown();
       if (location.hash === '#/') draw();
       else location.hash = '#/';

@@ -19,7 +19,7 @@ MAX_HEADER_BYTES = 100 * 1024 * 1024    # the safetensors format's own limit
 GGUF_PEEK_BYTES = 1024 * 1024
 # Goes up when what is kept from a header changes: a file whose kept header is older is read again at the next scan
 # (2: the training facts and the trigger words worked out from the training tags, 2026-10-03).
-HEADER_VERSION = 3
+HEADER_VERSION = 4
 
 # Metadata worth keeping in the index (short values only).
 KEPT_METADATA = ("ss_base_model_version", "ss_sd_model_name", "ss_output_name", "ss_network_module", "ss_network_dim",
@@ -34,7 +34,7 @@ _CONTEXT_FAMILY = {768: "sd15", 1024: "sd2", 2048: "sdxl", 1280: "sdxl"}    # wi
 _CHECKPOINT_PARTS = ("first_stage_model.", "vae.", "cond_stage_model.", "conditioner.", "text_encoders.")
 _DIFFUSION_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "net.", "")
 
-_GGUF_FAMILY = {"flux": "flux", "sd1": "sd15", "sdxl": "sdxl", "sd3": "sd3", "lumina2": "lumina2",
+_GGUF_FAMILY = {"seedvr": "seedvr2", "flux": "flux", "sd1": "sd15", "sdxl": "sdxl", "sd3": "sd3", "lumina2": "lumina2",
                 "qwen_image": "qwen", "wan": "wan", "hyvid": "hunyuan_video", "hidream": "hidream",
                 "cosmos": "cosmos", "aura": "auraflow", "ltxv": "ltxv"}
 _GGUF_TEXT = ("t5", "t5encoder", "llama", "clip", "qwen2", "qwen2vl", "qwen3", "gemma", "gemma2", "gemma3", "umt5")
@@ -217,7 +217,8 @@ def _lora_family(keys, tensors, metadata):
 def classify(metadata, tensors, name=""):
     """{"content", "family"} for a safetensors header, plus "hint" when only the file's name suggests a family.
 
-    content: checkpoint | diffusion_model | lora | embedding | vae | text_encoder | controlnet | unknown
+    content: checkpoint | diffusion_model | lora | embedding | vae | text_encoder | controlnet | upscaler | model_patch |
+             unknown
 
     family comes from the tensors and the training notes and can be relied on. Files of the SDXL architecture are
     refined to pony or illustrious when the notes say so; when only the name says so ("PONY\\x.safetensors"), that
@@ -231,6 +232,10 @@ def classify(metadata, tensors, name=""):
             if hint:
                 out["hint"] = hint
     return out
+
+
+_UPSCALER_HEADS = {"conv_first", "conv_last", "conv_after_body", "conv_before_upsample", "upsample", "upsampler",
+                   "upconv1", "conv_up1", "HRconv", "conv_hr", "tail", "RRDB_trunk", "conv_cat", "to_img"}
 
 
 def _classify(metadata, tensors):
@@ -277,6 +282,13 @@ def _classify(metadata, tensors):
     if "decoder" in heads and heads & {"decoder.conv_in", "decoder.up", "decoder.up_blocks", "decoder.upsamples",
                                        "decoder.conv1", "decoder.mid", "decoder.mid_block", "decoder.middle"}:
         return {"content": "vae", "family": UNKNOWN}
+    # a patch for a diffusion model loaded beside it (ComfyUI's model_patches: Z-Image's "Fun ControlNet Union")
+    if any(h.startswith(("control_layers", "control_all_x_embedder", "control_noise_refiner")) for h in heads):
+        zimage = any(h.startswith("control_noise_refiner") for h in heads)
+        return {"content": "model_patch", "family": "zimage" if zimage else UNKNOWN}
+    # an image upscaler (ESRGAN, RCAN, ATD, SPAN and their kin, as spandrel reads them): the upsampling tail
+    if heads & _UPSCALER_HEADS or any(k.startswith(("body.0.rdb1.", "model.1.sub.")) for k in keys[:50]):
+        return {"content": "upscaler", "family": UNKNOWN}
     return {"content": "unknown", "family": UNKNOWN}
 
 

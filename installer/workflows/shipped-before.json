@@ -1,0 +1,86 @@
+{
+ "about": "SHA-256 of the workflow files 0.6.0 and 0.6.1 wrote (both the same), by path under the workflows folder. Those installations did not record them; an update replaces a file still matching its entry here and keeps any other, which the user changed. 0.6.2 and later record theirs in install.json (workflow_files).",
+ "files": {
+  "Anima Base v1 - Text to Image.json": [
+   "f5d093bfb97409b5e3798394044baa8e775235335ffb881f0de0bf09a470cfe2"
+  ],
+  "Krea 2 Turbo - Text to Image.json": [
+   "a1f1bbda2fdd773421c402eee8f2b39319d9764119d7d779c63b0e5966ef6abd"
+  ],
+  "Krea 2 Turbo INT8 - Text to Image.json": [
+   "90a616a3bdea21a2579e2b16e5acee3178284bf2d90a5508af77a27f0a0fca1e"
+  ],
+  "Qwen Image 2.1 - Image Edit.json": [
+   "a1ff79f02bb0e5553699e3f2813d1c2ed53c37f7ff7d2dd4823eabb4a2178975"
+  ],
+  "Qwen Image 2.1 - Text to Image.json": [
+   "7d947d9c59d54830acbb990a04395b5c4aaa646c27ff43e63d755ce7f3563008"
+  ],
+  "Z-Image Base - Text to Image.json": [
+   "04643c15a93d372970bdd6e3b54f8cca40788ec77bcf26c30f695aa9ff6bd047"
+  ],
+  "Z-Image Turbo - Text to Image.json": [
+   "6b4b4385f4c3f174251d9f9aa79d69eb01dcf858228cbd3ce2fb79a1cdfa651e"
+  ],
+  "可选工作流/Anima · 图生图.json": [
+   "d9bc9aba1d5b3896e14c4cf6d2632bbc3fe365399b85bab1b3586b772a8b2dc0"
+  ],
+  "可选工作流/Anima · 局部重绘.json": [
+   "44cc2c42141e6f28b9ea77ac6c651d894f9b7580f7cad65da52f1ed3cc5ad4b5"
+  ],
+  "可选工作流/Anima · 文生图.json": [
+   "ac41b6387335f0611b47e8a3daaedff0083f23a48e333e48c237cc5442f3299a"
+  ],
+  "可选工作流/Krea 2 · 图生图.json": [
+   "12ed287fd87578528108dde2e26b4e63fb3b09df2c95dc6bf5ac0e4ad69cf94f"
+  ],
+  "可选工作流/Krea 2 · 局部重绘.json": [
+   "36f0e945a73b2d6b8044ff941ee845eedbe96442d54e71e540976daa3ea30a6b"
+  ],
+  "可选工作流/Krea 2 · 文生图.json": [
+   "375ffe9bf5dbc66e1092adcde634a9494957f704b7ef56650afe9ec101beb893"
+  ],
+  "可选工作流/Qwen-Image 2.1 · 动漫转真人.json": [
+   "871ef5e379388c484b90a3761f1473081d8e6fdfda743907243ecd47deb91aeb"
+  ],
+  "可选工作流/Qwen-Image 2.1 · 图生图.json": [
+   "b7968bad8f75aea6eff6c153e14006bb01729edbf700effee52d81075b8001cb"
+  ],
+  "可选工作流/Qwen-Image 2.1 · 局部重绘.json": [
+   "9a7613e6f0f1f5eb250bc9d0fae2c990e3be8638d826b956f8c125a17d90ff07"
+  ],
+  "可选工作流/Qwen-Image 2.1 · 改图.json": [
+   "61d78a5becc0d418bb5ee088aa287ea3aa3a87f0dfb10fdd3ae339c01e703fe2"
+  ],
+  "可选工作流/Qwen-Image 2.1 · 文生图.json": [
+   "75bb2311be6c14230edecf97a52c0003cca64f6c21895251b3967660d59c20f8"
+  ],
+  "可选工作流/SDXL · 图生图.json": [
+   "8564df5d9346b67ebc71b2e542c6f2f284f5540fc937edadcca26676a96e6dfa"
+  ],
+  "可选工作流/SDXL · 局部重绘.json": [
+   "d6867f5d8c33a15801b9dfd9a08c9306ffcf836de1f37bb8205796e6afeb17a7"
+  ],
+  "可选工作流/SDXL · 文生图.json": [
+   "d3331f3df3d4f615219e662310fe546ca27cf536e12e51f49bebee2c2837153d"
+  ],
+  "可选工作流/Z-Image · 图生图.json": [
+   "745dd6cf02377c57850c0902c83571c649dc433f7edafe2cba5c31a1c9d13ce9"
+  ],
+  "可选工作流/Z-Image · 局部重绘.json": [
+   "bdb51042a4e458eb44e6b20a679cfa086ea6093be2d288c1e5b36d574728168e"
+  ],
+  "可选工作流/Z-Image · 文生图.json": [
+   "b91d66e8938f3d4dcd699fa23eda407b6b28bf646aca0933a1579f719e30a154"
+  ],
+  "可选工作流/放大 · SeedVR2 成片.json": [
+   "b849a9ce676d3dbc6f51e37b6cb0aa12de33a0d661c36e666066f1ae758aad4e"
+  ],
+  "可选工作流/放大 · SeedVR2 照片.json": [
+   "fe57f2028d036718185a87a4c15a34c5a3a33f0adb02a35648a2090b21306809"
+  ],
+  "可选工作流/放大 · 放大模型.json": [
+   "e7011e255bb630dcc7fe7f512b50e0dbcdebf459948b35e511971f3ebed2309c"
+  ]
+ }
+}

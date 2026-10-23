@@ -103,7 +103,14 @@
         }
       ],
       "properties": {
-        "Node name for S&R": "UpscaleModelLoader"
+        "Node name for S&R": "UpscaleModelLoader",
+        "models": [
+          {
+            "name": "2x-AnimeSharpV4_RCAN.safetensors",
+            "url": "https://huggingface.co/Kim2091/2x-AnimeSharpV4/resolve/main/2x-AnimeSharpV4_RCAN.safetensors",
+            "directory": "upscale_models"
+          }
+        ]
       },
       "widgets_values": [
         "2x-AnimeSharpV4_RCAN.safetensors"

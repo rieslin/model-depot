@@ -109,6 +109,18 @@ namespace ModelDepotSetup
                 var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(Program.Temp, "WebView2"));
                 await web.EnsureCoreWebView2Async(env);
             }
+            catch (WebView2RuntimeNotFoundException)
+            {
+                // Windows 11 has it; an older Windows 10 may not
+                var answer = MessageBox.Show(this,
+                    "Model Depot 安装程序需要 Microsoft Edge WebView2 运行库才能显示界面。是否打开微软的下载页面？安装完成后，请重新运行本安装程序。\n\n" +
+                    "Model Depot Setup needs the Microsoft Edge WebView2 Runtime to show its window. Open Microsoft's download page? Run this setup again once it is installed.",
+                    "Model Depot", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                if (answer == DialogResult.Yes)
+                    try { System.Diagnostics.Process.Start("https://go.microsoft.com/fwlink/p/?LinkId=2124703"); } catch { }
+                Close();
+                return;
+            }
             catch (Exception ex)
             {
                 MessageBox.Show(this, "Model Depot Setup could not open its window.\nModel Depot 安装程序无法打开窗口。\n\n" + ex.Message, "Model Depot");

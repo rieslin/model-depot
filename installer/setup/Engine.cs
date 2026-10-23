@@ -34,8 +34,16 @@ namespace ModelDepotSetup
         const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ModelDepot";
         const int MinDriver = 580;      // PyTorch cu130 and llama.cpp's CUDA 13 build both need it
         static readonly string[] ModelExtensions = { ".safetensors", ".sft", ".ckpt", ".pt", ".pt2", ".pth", ".bin", ".pkl", ".gguf", ".onnx" };
-        // what removing the program leaves: the user's models, pictures, inputs and saved workflows
-        static readonly string[] ComfyKept = { "models", "user", "output", "input" };
+        // what removing the program leaves: the user's models, pictures, inputs and saved workflows (and, in
+        // custom_nodes, the custom nodes other programs or the user put there: only the setup's own are removed)
+        static readonly string[] ComfyKept = { "models", "user", "output", "input", "custom_nodes" };
+        // The custom nodes that 0.6.0 and 0.6.1 shipped, for an installation that did not note its own.
+        static readonly string[] OldOwnNodes = { "ComfyUI-Crystools", "ComfyUI-Impact-Pack", "ComfyUI-Impact-Subpack", "ComfyUI-KJNodes",
+            "ComfyUI-Krea2-Ostris-Edit", "ComfyUI-PixAI-Tagger", "comfyui_controlnet_aux", "ComfyUI_essentials", "ComfyUI_UltimateSDUpscale",
+            "rgthree-comfy", "seedvr2_videoupscaler", "was-node-suite-comfyui" };
+        // the folder for model files to sort, next to the package and in the installation; named so that nobody takes
+        // it for ComfyUI's own models folder (the review of 2026-10-20); installations before 0.6.2 used "models"
+        public const string InboxName = "Model Inbox";
 
         readonly string exeDir;
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 16 << 20 };
@@ -87,7 +95,8 @@ namespace ModelDepotSetup
             {
                 { "mode", "install" }, { "lang", Lang }, { "version", Manifest["version"] }, { "comfyui", Manifest["comfyui"] },
                 { "parts", parts }, { "bytes", BytesOf(t => true) }, { "defaults", defaults }, { "gpu", Graphics() },
-                { "inbox", Inbox(Path.Combine(exeDir, "models")) }, { "upgrade", existing != null },
+                { "inbox", Inbox(new[] { Path.Combine(exeDir, InboxName), Path.Combine(exeDir, "models") }.FirstOrDefault(Directory.Exists) ?? Path.Combine(exeDir, InboxName)) },
+                { "upgrade", existing != null },
                 { "comfy", new Dictionary<string, object> { { "found", FindComfy(existing) }, { "own", existing == null || OwnComfy(existing) } } },
             };
         }
@@ -152,6 +161,27 @@ namespace ModelDepotSetup
         List<string> NodeNames => Manifest.TryGetValue("custom_node_names", out var v) && v is System.Collections.ArrayList list
             ? list.Cast<object>().Select(o => o.ToString()).ToList() : new List<string>();
 
+        // The version of each custom node in the package (its pyproject.toml), written by installer\build.py.
+        Dictionary<string, object> NodeVersions => Manifest.TryGetValue("custom_node_versions", out var v) && v is Dictionary<string, object> d
+            ? d : new Dictionary<string, object>();
+
+        // The fingerprints of the workflow files 0.6.0 and 0.6.1 wrote, which those installations did not record
+        // (installer\workflows\shipped-before.json, carried by the manifest).
+        bool EarlierWorkflow(string rel, string hash) =>
+            Manifest.TryGetValue("earlier_workflow_files", out var v) && v is Dictionary<string, object> d
+            && d.TryGetValue(rel.Replace('\\', '/'), out var list) && list is System.Collections.ArrayList hashes
+            && hashes.Cast<object>().Any(h => h as string == hash);
+
+        static string NodeVersion(string folder)
+        {
+            try
+            {
+                var m = Regex.Match(File.ReadAllText(Path.Combine(folder, "pyproject.toml")), "(?m)^version\\s*=\\s*[\"']([^\"']+)");
+                return m.Success ? m.Groups[1].Value : "";
+            }
+            catch { return ""; }
+        }
+
         // Custom nodes installed by hand keep their repository's name; ComfyUI Manager's registry writes it in lower case
         // and may drop the "ComfyUI" in it: compared without either.
         static string NodeKey(string name) =>
@@ -176,16 +206,19 @@ namespace ModelDepotSetup
             return Path.Combine(root, "ComfyUI", "models");
         }
 
+        // Numbers are compared as digit strings: a part may be longer than any integer type (rgthree-comfy's
+        // "1.0.2605082257" overflowed the int this once read into, and the update stopped).
         static bool Older(string version, string than)
         {
-            int[] Parse(string s) => Regex.Matches(s ?? "", "\\d+").Cast<Match>().Select(m => int.Parse(m.Value, CultureInfo.InvariantCulture)).ToArray();
+            string[] Parse(string s) => Regex.Matches(s ?? "", "\\d+").Cast<Match>().Select(m => m.Value.TrimStart('0')).ToArray();
             var a = Parse(version);
             var b = Parse(than);
             if (a.Length == 0 || b.Length == 0) return false;
             for (int i = 0; i < Math.Max(a.Length, b.Length); i++)
             {
-                int x = i < a.Length ? a[i] : 0, y = i < b.Length ? b[i] : 0;
-                if (x != y) return x < y;
+                string x = i < a.Length ? a[i] : "", y = i < b.Length ? b[i] : "";
+                int c = x.Length != y.Length ? x.Length.CompareTo(y.Length) : string.CompareOrdinal(x, y);
+                if (c != 0) return c < 0;
             }
             return false;
         }
@@ -334,6 +367,9 @@ namespace ModelDepotSetup
                 if (p.Any(ch => ch > 127))
                     warnings.Add(new Dictionary<string, object> { { "field", kv.Key }, { "code", "non_ascii" } });
             }
+            var installed = ReadInfo(places["install"] ?? "");
+            if (installed.TryGetValue("version", out var have) && have is string haveText && Older((string)Manifest["version"], haveText))
+                problems.Add(new Dictionary<string, object> { { "field", "install" }, { "code", "newer_installed" }, { "detail", haveText } });
             long program = BytesOf(t => t != "library" && !(external && t == "comfyui")), lib = BytesOf(t => t == "library");
             var need = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
             void Add(string path, long n)
@@ -467,19 +503,25 @@ namespace ModelDepotSetup
                     Directory.CreateDirectory(dest);
                     long size = Long(part["bytes"]);
                     long done0 = before;
-                    // the library and the saved workflows never lose a file of the user's: what is there stays
-                    bool keep = part["target"] as string == "library" || part["target"] as string == "workflows";
-                    Unpack(Path.Combine(Payload, (string)part["file"]), dest, keep, token, pct =>
-                        report(new Dictionary<string, object>
-                        {
-                            { "stage", "unpack" }, { "part", part["name"] }, { "done", done0 + size * pct / 100 }, { "total", total },
-                            { "elapsed", (DateTime.UtcNow - started).TotalSeconds },
-                        }));
+                    var target = (string)part["target"];
+                    Action<long> progress = pct => report(new Dictionary<string, object>
+                    {
+                        { "stage", "unpack" }, { "part", part["name"] }, { "done", done0 + size * pct / 100 }, { "total", total },
+                        { "elapsed", (DateTime.UtcNow - started).TotalSeconds },
+                    });
+                    var archive = Path.Combine(Payload, (string)part["file"]);
+                    if (target == "workflows")
+                        workflowRecord = MergeWorkflows(archive, dest, ReadInfo(install), token, progress);
+                    else
+                        // the library never loses a file of the user's: what is there stays. An update of the bundled
+                        // ComfyUI leaves the user's own settings, launch scripts and newer custom nodes as they are.
+                        Unpack(archive, dest, target == "library", token, progress,
+                               update && target == "comfyui" ? ComfyKeptOnUpdate(dest) : null);
                     before += size;
                 }
                 token.ThrowIfCancellationRequested();
                 report(new Dictionary<string, object> { { "stage", "configure" }, { "done", total }, { "total", total }, { "elapsed", (DateTime.UtcNow - started).TotalSeconds } });
-                Configure(install, library, data, lang, total, external);
+                Configure(install, library, data, lang, total, external, update);
             }
             catch (Exception ex) when (update)
             {
@@ -494,11 +536,74 @@ namespace ModelDepotSetup
             }
         }
 
+        Dictionary<string, object> workflowRecord;     // the workflow files this run wrote, with their fingerprints
+
+        // What an update of the bundled ComfyUI does not replace (paths inside the archive, as 7za's -x! takes them):
+        // the user's settings and the manager's (user\), the launch scripts (the setup may have added the library's
+        // place to them; the user may have added options), and a custom node whose installed version is newer than the
+        // package's (Image Atelier installs the PixAI tagger too). A custom node the package no longer carries is not
+        // removed: it may be in use.
+        List<string> ComfyKeptOnUpdate(string comfy)
+        {
+            var kept = new List<string> { "ComfyUI\\user", "*.bat", "advanced\\*.bat", "ComfyUI\\extra_model_paths.yaml" };
+            var versions = NodeVersions;
+            foreach (var name in NodeNames)
+            {
+                var have = NodeVersion(Path.Combine(comfy, "ComfyUI", "custom_nodes", name));
+                var ship = versions.TryGetValue(name, out var v) ? v as string : "";
+                if (have != "" && ship != "" && Older(ship, have)) kept.Add("ComfyUI\\custom_nodes\\" + name);
+            }
+            return kept;
+        }
+
+        // The workflows: unpacked beside, then copied in file by file. A file the user has not changed since the setup
+        // wrote it (its fingerprint is the one noted then) is replaced by the package's; one the user changed or made is
+        // kept. So corrected workflows reach an installation, and the user's edits stay.
+        Dictionary<string, object> MergeWorkflows(string archive, string dest, Dictionary<string, object> info, CancellationToken token, Action<long> progress)
+        {
+            var noted = info.TryGetValue("workflow_files", out var w) && w is Dictionary<string, object> d ? d : new Dictionary<string, object>();
+            var temp = Path.Combine(Path.GetTempPath(), "ModelDepotSetup", "workflows-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            var record = new Dictionary<string, object>();
+            try
+            {
+                Unpack(archive, temp, false, token, progress);
+                foreach (var file in Directory.GetFiles(temp, "*", SearchOption.AllDirectories))
+                {
+                    var rel = file.Substring(temp.Length).TrimStart('\\');
+                    var to = Path.Combine(dest, rel);
+                    var shipped = Sha256(file);
+                    bool write = !File.Exists(to);
+                    if (!write)
+                    {
+                        var now = Sha256(to);
+                        write = now == shipped || (noted.TryGetValue(rel, out var was) ? was as string == now : EarlierWorkflow(rel, now));
+                    }
+                    if (write)
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(to));
+                        File.Copy(file, to, true);
+                        record[rel] = shipped;
+                    }
+                    else if (noted.TryGetValue(rel, out var keptHash)) record[rel] = keptHash;    // changed by the user: kept
+                }
+            }
+            finally { TryDelete(temp); }
+            return record;
+        }
+
+        static string Sha256(string path)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (var f = File.OpenRead(path))
+                return BitConverter.ToString(sha.ComputeHash(f)).Replace("-", "").ToLowerInvariant();
+        }
+
         // One archive into a folder with 7za, reporting its percentage. Stopping kills it.
-        void Unpack(string archive, string dest, bool keepExisting, CancellationToken token, Action<long> progress)
+        void Unpack(string archive, string dest, bool keepExisting, CancellationToken token, Action<long> progress, List<string> except = null)
         {
             if (!File.Exists(archive)) throw new SetupProblem("no_payload", archive);
             var args = string.Format("x \"{0}\" -o\"{1}\" -y {2} -bsp1 -bso0 -bse1 -mmt=on", archive, dest, keepExisting ? "-aos" : "-aoa");
+            if (except != null) args += string.Concat(except.Select(x => " \"-x!" + x + "\""));
             var p = Process.Start(new ProcessStartInfo(Path.Combine(Payload, "7za.exe"), args)
             { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8 });
             var output = new StringBuilder();
@@ -536,23 +641,34 @@ namespace ModelDepotSetup
             progress(100);
         }
 
-        void Configure(string install, string library, string data, string lang, long total, string external)
+        void Configure(string install, string library, string data, string lang, long total, string external, bool update)
         {
             bool own = external == null;
             var comfy = external ?? Path.Combine(install, "ComfyUI");
+            var before = ReadInfo(install);
             Directory.CreateDirectory(data);
-            Directory.CreateDirectory(Path.Combine(install, "models"));
+            // an installation from before 0.6.2 keeps its "models" folder for files to sort: Model Depot's settings name
+            // it, and a second, new folder would never be sorted
+            var inbox = Path.Combine(install, InboxName);
+            var oldInbox = Path.Combine(install, "models");
+            if (update && !Directory.Exists(inbox) && Directory.Exists(oldInbox)) inbox = oldInbox;
+            Directory.CreateDirectory(inbox);
             Directory.CreateDirectory(Path.Combine(install, "llm", "models"));
-            if (own) ConfigureComfy(comfy, library, lang);
+            if (own) ConfigureComfy(comfy, library, lang, update);
+            var packageInbox = new[] { Path.Combine(exeDir, InboxName), Path.Combine(exeDir, "models") }.FirstOrDefault(Directory.Exists);
 
             // what Model Depot reads next to run.py (paths.install_info), and where another setup finds this one
             var info = new Dictionary<string, object>
             {
                 { "version", Manifest["version"] }, { "install_dir", install }, { "data_dir", data },
                 { "python", Path.Combine(install, "python", "python.exe") }, { "comfyui_dir", comfy }, { "comfyui_own", own },
-                { "models_dir", library }, { "llm_dir", Path.Combine(install, "llm") }, { "inbox", new[] { Path.Combine(install, "models") } },
-                { "inbox_once", Directory.Exists(Path.Combine(exeDir, "models")) ? new[] { Path.Combine(exeDir, "models") } : new string[0] },
+                { "models_dir", library }, { "llm_dir", Path.Combine(install, "llm") }, { "inbox", new[] { inbox } },
+                { "inbox_once", packageInbox != null ? new[] { packageInbox } : new string[0] },
                 { "language", lang },
+                // what is the setup's own, for an update and for removing: the custom nodes it brought, the workflow
+                // files it wrote (with their fingerprints, so that the user's edits are told apart)
+                { "own_custom_nodes", own ? NodeNames : new List<string>() },
+                { "workflow_files", workflowRecord ?? (before.TryGetValue("workflow_files", out var wf) ? wf : new Dictionary<string, object>()) },
             };
             File.WriteAllText(Path.Combine(install, "app", "install.json"), json.Serialize(info), new UTF8Encoding(false));
 
@@ -564,7 +680,7 @@ namespace ModelDepotSetup
             CopyTree(UiFolder, Path.Combine(uninstall, "ui"));
 
             var exe = Path.Combine(install, "app", "desktop", "app", "ModelDepot.exe");
-            var comfyBat = Path.Combine(comfy, "run_nvidia_gpu.bat");
+            var comfyBat = Path.Combine(comfy, LauncherName);
             using (var key = Registry.CurrentUser.CreateSubKey(RegKey))
             {
                 key.SetValue("InstallDir", install);
@@ -601,16 +717,33 @@ namespace ModelDepotSetup
             }
         }
 
-        // The bundled ComfyUI: the library where the user put it, the SeedVR2 folder, the page in the setup's language.
-        void ConfigureComfy(string comfy, string library, string lang)
+        // The launcher the ComfyUI shortcut starts: it opens ComfyUI's page when ComfyUI is already running (started by
+        // Image Atelier in the background, say) instead of starting a second one that fails on the busy port.
+        const string LauncherName = "Start ComfyUI.cmd";
+        const string Launcher =
+            "@echo off\r\n" +
+            "rem Written by the Model Depot setup: opens ComfyUI's page when ComfyUI is already running, else starts it.\r\n" +
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$c = New-Object Net.Sockets.TcpClient; try { $c.Connect('127.0.0.1', 8188); exit 0 } catch { exit 1 } finally { $c.Close() }\"\r\n" +
+            "if %errorlevel%==0 (\r\n    start \"\" http://127.0.0.1:8188/\r\n    exit /b 0\r\n)\r\n" +
+            "cd /d \"%~dp0\"\r\ncall run_nvidia_gpu.bat\r\n";
+
+        // The bundled ComfyUI: the library where the user put it, the page in the setup's language, the launcher. An
+        // update changes only the launcher: the rest is the user's by then.
+        void ConfigureComfy(string comfy, string library, string lang, bool update)
         {
             var app = Path.Combine(comfy, "ComfyUI");
             var defaultLibrary = Path.Combine(app, "models");
             Directory.CreateDirectory(defaultLibrary);
+            File.WriteAllText(Path.Combine(comfy, LauncherName), Launcher, Encoding.ASCII);
+            if (update) return;
 
-            // ComfyUI reads the library from where the user put it
+            // ComfyUI reads the library from where the user put it. A path the system's code page cannot write (Chinese
+            // on a Western Windows) goes into the script as UTF-8, which cmd reads after "chcp 65001".
             if (!string.Equals(Path.GetFullPath(library), Path.GetFullPath(defaultLibrary), StringComparison.OrdinalIgnoreCase))
             {
+                var strict = Encoding.GetEncoding(Encoding.Default.CodePage, EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+                bool fits;
+                try { strict.GetBytes(library); fits = true; } catch (EncoderFallbackException) { fits = false; }
                 var scripts = Directory.GetFiles(comfy, "*.bat").Concat(Directory.Exists(Path.Combine(comfy, "advanced"))
                     ? Directory.GetFiles(Path.Combine(comfy, "advanced"), "*.bat") : new string[0]);
                 foreach (var bat in scripts)
@@ -618,15 +751,12 @@ namespace ModelDepotSetup
                     var text = File.ReadAllText(bat, Encoding.Default);
                     if (text.Contains("--models-directory") || !text.Contains("main.py")) continue;
                     text = Regex.Replace(text, @"main\.py(?=[ \r\n])", m => "main.py --models-directory \"" + library + "\"");
-                    File.WriteAllText(bat, text, Encoding.Default);
+                    if (fits) File.WriteAllText(bat, text, Encoding.Default);
+                    else File.WriteAllText(bat, "@chcp 65001 >nul\r\n" + text, new UTF8Encoding(false));
                 }
             }
-            // the SeedVR2 upscaler keeps its model and VAE in the library's SEEDVR2 folder, which ComfyUI does not search
-            File.WriteAllText(Path.Combine(app, "extra_model_paths.yaml"),
-                "# Written by the Model Depot setup: the SeedVR2 upscaler keeps its model and VAE in the library's SEEDVR2 folder.\n" +
-                "seedvr2:\n    base_path: " + library.Replace('\\', '/').TrimEnd('/') + "/\n    diffusion_models: SEEDVR2\n    vae: SEEDVR2\n",
-                new UTF8Encoding(false));
-            Directory.CreateDirectory(Path.Combine(library, "SEEDVR2"));
+            // SeedVR2's model and VAE go into ComfyUI's standard folders (diffusion_models, vae), as ComfyUI's own
+            // templates have them: no folder of their own registered twice (the VAE list showed the 7.9 GB model).
             // ComfyUI's page in the language of the setup
             var settingsPath = Path.Combine(app, "user", "default", "comfy.settings.json");
             Directory.CreateDirectory(Path.GetDirectoryName(settingsPath));
@@ -712,15 +842,34 @@ namespace ModelDepotSetup
             {
                 { "library", info.TryGetValue("models_dir", out var l) ? l : Path.Combine(install, "ComfyUI", "ComfyUI", "models") },
                 { "data", info.TryGetValue("data_dir", out var d) ? d : Path.Combine(install, "data") },
-                { "inbox", Path.Combine(install, "models") },
+                { "inbox", Directory.Exists(Path.Combine(install, InboxName)) ? Path.Combine(install, InboxName) : Path.Combine(install, "models") },
             };
-            if (own) kept["comfy_user"] = Path.Combine(install, "ComfyUI", "ComfyUI");
+            if (own)
+            {
+                kept["comfy_user"] = Path.Combine(install, "ComfyUI", "ComfyUI");
+                var others = ForeignNodes(install, info);
+                if (others.Count > 0) kept["comfy_plugins"] = others;
+            }
             else kept["comfy_external"] = info["comfyui_dir"];
             return new Dictionary<string, object>
             {
                 { "mode", "uninstall" }, { "lang", Lang }, { "version", info.TryGetValue("version", out var v) ? v : "" },
                 { "install", install }, { "kept", kept },
             };
+        }
+
+        // The custom nodes of the installation's ComfyUI that are not the setup's own: other programs' or the user's.
+        static List<string> OwnNodes(Dictionary<string, object> info) =>
+            info.TryGetValue("own_custom_nodes", out var v) && v is System.Collections.ArrayList list
+                ? list.Cast<object>().Select(o => o.ToString()).ToList() : OldOwnNodes.ToList();
+
+        static List<string> ForeignNodes(string install, Dictionary<string, object> info)
+        {
+            var nodes = Path.Combine(install, "ComfyUI", "ComfyUI", "custom_nodes");
+            if (!Directory.Exists(nodes)) return new List<string>();
+            var own = new HashSet<string>(OwnNodes(info).Select(NodeKey));
+            return Directory.GetDirectories(nodes).Select(Path.GetFileName)
+                .Where(n => !n.StartsWith(".") && !n.StartsWith("__") && !own.Contains(NodeKey(n.Replace(".disabled", "")))).ToList();
         }
 
         // An installation from before the choice of ComfyUI always has its own.
@@ -737,7 +886,8 @@ namespace ModelDepotSetup
         {
             if (string.IsNullOrEmpty(install) || !Directory.Exists(install)) throw new SetupProblem("not_installed", install);
             // only <install>\ComfyUI is ever removed below: an existing ComfyUI the installation used stays as it is
-            bool ownComfy = OwnComfyInfo(ReadInfo(install));
+            var info = ReadInfo(install);
+            bool ownComfy = OwnComfyInfo(info);
             StopRunning(install);
             var comfy = Path.Combine(install, "ComfyUI");
             var app = Path.Combine(comfy, "ComfyUI");
@@ -747,6 +897,15 @@ namespace ModelDepotSetup
             {
                 doomed.AddRange(Directory.GetDirectories(app).Where(d => !ComfyKept.Contains(Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)));
                 doomed.AddRange(Directory.GetFiles(app));
+                // the custom nodes the setup brought; other programs' and the user's stay
+                var nodes = Path.Combine(app, "custom_nodes");
+                if (Directory.Exists(nodes))
+                {
+                    var own = new HashSet<string>(OwnNodes(info).Select(NodeKey));
+                    doomed.AddRange(Directory.GetDirectories(nodes).Where(d => own.Contains(NodeKey(Path.GetFileName(d).Replace(".disabled", ""))) ||
+                                                                               Path.GetFileName(d) == "__pycache__"));
+                    doomed.AddRange(Directory.GetFiles(nodes));
+                }
             }
             if (Directory.Exists(comfy)) doomed.AddRange(Directory.GetFiles(comfy));
             int done = 0;
@@ -763,7 +922,7 @@ namespace ModelDepotSetup
             Registry.CurrentUser.DeleteSubKeyTree(UninstallKey, false);
             Registry.CurrentUser.DeleteSubKeyTree(RegKey, false);
             TryDelete(Path.Combine(install, "uninstall"));
-            foreach (var empty in new[] { Path.Combine(install, "llm", "models"), Path.Combine(install, "llm") })
+            foreach (var empty in new[] { Path.Combine(app, "custom_nodes"), Path.Combine(install, "llm", "models"), Path.Combine(install, "llm") })
                 if (Directory.Exists(empty) && !Directory.EnumerateFileSystemEntries(empty).Any()) TryDelete(empty);
             report(new Dictionary<string, object> { { "stage", "remove" }, { "done", doomed.Count }, { "total", doomed.Count } });
         }

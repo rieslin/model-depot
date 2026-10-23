@@ -10,15 +10,20 @@ import { Dossier } from './dossier.js';
 import { MASK_FROM, levelName, icon, baseName, recall, remember, titleOf } from './ui.js';
 import { decode, snap, onScreen, pace } from './motion.js';
 
-// What the library lists: the models one picks to make an image, under four tabs. A diffusion model (the model alone,
-// without its text encoder and VAE, as Flux and Qwen come) is a Checkpoint here, though its card still says which it
-// is. Text encoders, upscalers and ControlNet models are listed in the inventory only; files of other kinds nowhere.
-const TAB_OF = { checkpoint: 'checkpoint', diffusion_model: 'checkpoint', lora: 'lora', embedding: 'embedding', vae: 'vae' };
-const TAB_ORDER = ['checkpoint', 'lora', 'embedding', 'vae'];
-const KIND_ORDER = ['checkpoint', 'diffusion_model', 'lora', 'embedding', 'vae'];
+// What the library lists: the models one picks to make an image, under three tabs (the user's choice, 2026-10-20: "the
+// library needs only base or Checkpoint models, LoRA and Embedding; the rest can be indexed but not shown"). A diffusion
+// model (the model alone, without its text encoder and VAE, as Flux and Qwen come) is a Checkpoint here, though its
+// card still says which it is. VAEs, text encoders, upscalers, ControlNet models and SeedVR2's upscaling model are in
+// the inventory and the interface only.
+const TAB_OF = { checkpoint: 'checkpoint', diffusion_model: 'checkpoint', lora: 'lora', embedding: 'embedding' };
+const TAB_ORDER = ['checkpoint', 'lora', 'embedding'];
+const KIND_ORDER = ['checkpoint', 'diffusion_model', 'lora', 'embedding'];
+const UNLISTED_FAMILIES = new Set(['seedvr2']);      // a diffusion model by its make, but an upscaler by its use
+const listed = (m) => Boolean(TAB_OF[m.kind]) && !UNLISTED_FAMILIES.has(m.family);
 const KEYS = { kind: 'md.kind', mask: 'md.mask', foldersKept: 'md.folders_kept', folds: 'md.folds' };
 const askedFolders = new Set();     // missing folders already put to the user in this visit
-let askedInbox = false;             // the inbox folders are looked at once a visit (the page opened or reloaded)
+let askedInbox = false;             // the inbox folders are looked at once a visit (the page opened or reloaded),
+const inboxSeen = new Set();        // and again when the window comes back to the front, if new files are in them
 const CARD_ASPECT = 5 / 8;
 
 // Where a type tab's red bar is drawn, in the tab row's own coordinates (the bar is the tab's ::after).
@@ -104,7 +109,7 @@ export class Library {
     this.timer = null;
     this.onScroll = () => this.scheduleSpy();
     this.onResize = () => { this.scheduleSpy(); this.markOverflow(); };
-    this.onFocus = () => this.rescan();
+    this.onFocus = () => { this.rescan(); this.checkInbox(true); };
     this.working = h('span', { class: 'working', hidden: true, role: 'status' });
   }
 
@@ -212,7 +217,7 @@ export class Library {
       if (first || progress.revision !== this.revision) {
         const data = await api('GET', '/api/v1/models');
         if (!this.alive) return;
-        this.models = data.models.filter((m) => TAB_OF[m.kind]);
+        this.models = data.models.filter(listed);
         this.revision = data.revision;
         if (this.ctx.onCount) this.ctx.onCount(cardCounts(this.models)['']);
         this.render(false);
@@ -1079,13 +1084,15 @@ export class Library {
   // ---- the inbox folders --------------------------------------------------------------------------------------
   // Model files dropped into the inbox folders (the setup's models folder, and the one next to the program) are listed
   // with where each would go; only the ticked ones are moved. Asked once a visit.
-  async checkInbox() {
-    if (askedInbox) return;
+  async checkInbox(again) {
+    if (askedInbox && !again) return;
     askedInbox = true;
     let plan;
     try { plan = await api('GET', '/api/ui/inbox'); } catch (e) { return; }
     if (!this.alive || document.querySelector('dialog[open]')) return;
-    if (plan.items.length || plan.progress.running) this.askInbox(plan);
+    const fresh = plan.items.some((i) => !inboxSeen.has(i.path));
+    for (const i of plan.items) inboxSeen.add(i.path);
+    if ((plan.items.length && (!again || fresh)) || plan.progress.running) this.askInbox(plan);
   }
 
   askInbox(plan) {
@@ -1117,10 +1124,12 @@ export class Library {
       return h('li', null, h('label', { class: 'confirm-file' }, box,
         h('span', { class: 'what' }, h('span', { class: 'path' }, item.name),
           h('small', { class: 'dest' }, code ? [h('b', null, code), ' · '] : null, kindOf(item), ' → ',
-            item.comfy_type === 'llm' ? t('lib.inbox_llm_dest') : item.rel)),
+            item.comfy_type === 'llm' ? t('lib.inbox_llm_dest') : item.rel),
+          item.keep ? h('small', null, t('lib.inbox_keep')) : null),
         h('small', { class: 'size' }, formatBytes(item.bytes))));
     });
-    const reasons = { not_model: 'lib.inbox_not_model', unknown: 'lib.inbox_unknown', no_folder: 'lib.inbox_no_folder' };
+    const reasons = { not_model: 'lib.inbox_not_model', unknown: 'lib.inbox_unknown', no_folder: 'lib.inbox_no_folder',
+      already_there: 'lib.inbox_already_there', name_taken: 'lib.inbox_name_taken' };
     const left = plan.skipped.map((item) => h('li', { class: 'off' }, h('div', { class: 'confirm-file' },
       h('span', { class: 'what' }, h('span', { class: 'path' }, item.name), h('small', null, t(reasons[item.reason]))),
       h('small', { class: 'size' }, formatBytes(item.bytes)))));

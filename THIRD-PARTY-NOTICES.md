@@ -33,34 +33,28 @@ These are separate programs installed beside Model Depot. Model Depot does not c
 
 | Component | License |
 |---|---|
-| [ComfyUI](https://github.com/Comfy-Org/ComfyUI) 0.37, portable build | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
+| [ComfyUI](https://github.com/Comfy-Org/ComfyUI) 0.42.5, portable build | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
 | [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
 | [ComfyUI workflow templates](https://github.com/Comfy-Org/workflow_templates), the source of the default workflows | [MIT License](https://opensource.org/license/mit) |
 | The Python packages of the portable ComfyUI, PyTorch among them | Their own licenses, in `ComfyUI\python_embeded\Lib\site-packages\*.dist-info` |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) build 10327 (`llama-server` and its libraries), Copyright 2023-2026 The ggml authors | [MIT License](https://opensource.org/license/mit), full text in `llm\llama.cpp\LICENSE.txt` |
 | NVIDIA CUDA runtime libraries shipped with llama.cpp (`cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll`) | [NVIDIA CUDA Toolkit End User License Agreement](https://docs.nvidia.com/cuda/eula/index.html), redistributable files |
 | LLVM OpenMP runtime shipped with llama.cpp (`libomp140.x86_64.dll`) | Microsoft Visual C++ redistributable files, under the [Visual Studio license terms](https://visualstudio.microsoft.com/license-terms/) |
+| Microsoft Visual C++ runtime (`msvcp140*.dll`, `vcruntime140*.dll`, `concrt140.dll`, `vcomp140.dll`), placed beside ComfyUI's Python, in PyTorch's `torch\lib` and beside `llama-server`, which cannot start without them | Microsoft Visual C++ redistributable files, under the [Visual Studio license terms](https://visualstudio.microsoft.com/license-terms/) |
 | [7-Zip](https://www.7-zip.org/) 26.04 (`7za.exe`, used by the setup to unpack; not installed), Copyright 1999-2026 Igor Pavlov | [GNU LGPL 2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html), with parts under the BSD 3-Clause and BSD 2-Clause licenses; full text in `setup\7-Zip License.txt` |
 | [PixAI Tagger v1.0](https://huggingface.co/pixai-labs/pixai-tagger-v1.0), model weights and code | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 
-The setup changes two of ComfyUI's files when the model library is not in ComfyUI's own `models` folder: it adds `--models-directory` to the `run_*.bat` launchers and rewrites `extra_model_paths.yaml`. In the copied ComfyUI, numba and llvmlite are upgraded (to 0.68.0 and 0.50.0) so that `was-node-suite-comfyui` loads with NumPy 2.5.
+When the model library is not in ComfyUI's own `models` folder, a new installation adds `--models-directory` to ComfyUI's `run_*.bat` launchers; an update leaves the launchers, ComfyUI's settings and `extra_model_paths.yaml` as they are. The setup adds a `Start ComfyUI.cmd` launcher that opens a running ComfyUI's page instead of starting a second one. In the copied ComfyUI, numba and llvmlite are upgraded (to 0.68.0 and 0.50.0), which accept NumPy 2.5, and the `gguf` package is added for ComfyUI-GGUF.
 
-Custom nodes installed with ComfyUI:
+Custom nodes installed with ComfyUI (each for a reason: GGUF model files, the optional workflows, detail passes, preprocessing):
 
 | Custom node | License |
 |---|---|
-| [ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools) | [MIT License](https://opensource.org/license/mit) |
+| [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
 | [ComfyUI-Impact-Pack](https://github.com/ltdrdata/ComfyUI-Impact-Pack) | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
 | [ComfyUI-Impact-Subpack](https://github.com/ltdrdata/ComfyUI-Impact-Subpack) | [GNU Affero General Public License 3.0](https://www.gnu.org/licenses/agpl-3.0.html) |
-| [ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
-| [ComfyUI-Krea2-Ostris-Edit](https://github.com/ostris/ComfyUI-Krea2-Ostris-Edit) | [MIT License](https://opensource.org/license/mit) |
 | ComfyUI-PixAI-Tagger, Copyright 2026 rieslin | [MIT License](https://opensource.org/license/mit) |
-| [ComfyUI_UltimateSDUpscale](https://github.com/ssitu/ComfyUI_UltimateSDUpscale) | [GNU General Public License 3.0](https://www.gnu.org/licenses/gpl-3.0.html) |
-| [ComfyUI_essentials](https://github.com/cubiq/ComfyUI_essentials) | [MIT License](https://opensource.org/license/mit) |
 | [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux) | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
-| [rgthree-comfy](https://github.com/rgthree/rgthree-comfy) | [MIT License](https://opensource.org/license/mit) |
-| [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) | [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
-| [was-node-suite-comfyui](https://github.com/ltdrdata/was-node-suite-comfyui) | [MIT License](https://opensource.org/license/mit) |
 
 The optional workflows (`installer/workflows/optional`) are part of Model Depot and fall under its GNU General Public License version 3.
 

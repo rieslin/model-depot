@@ -380,14 +380,14 @@ export class Dossier {
     }, 3000);
   }
 
-  async readPage(refresh) {
+  async readPage(refresh, retry) {
     const sha = this.detail && this.detail.sha256;
     if (!sha || this.pageReading === sha) return;
     this.pageReading = sha;
     this.pageError = null;
     this.refresh();
     try {
-      const detail = await api('POST', '/api/ui/models/' + sha + '/page', { refresh: Boolean(refresh) });
+      const detail = await api('POST', '/api/ui/models/' + sha + '/page', { refresh: Boolean(refresh), retry: Boolean(retry) });
       if (this.detail && this.detail.sha256 === sha) this.detail = detail;
     } catch (e) {
       this.pageError = { sha, message: e.message };
@@ -1065,7 +1065,7 @@ export class Dossier {
     const d = this.detail;
     const page = d.page || { state: 'none' };
     if (page.state === 'none') return null;
-    const link = (key, refresh) => h('button', { class: 'link-btn', type: 'button', onclick: () => this.readPage(refresh) }, t(key));
+    const link = (key, refresh) => h('button', { class: 'link-btn', type: 'button', onclick: () => this.readPage(refresh, true) }, t(key));
     if (this.pageReading === d.sha256) return h('span', { class: 'reading', role: 'status' }, t('dos.page_reading'));
     if (this.pageError && this.pageError.sha === d.sha256) {
       return h('span', { class: 'bad', role: 'status' }, t('dos.page_failed', { reason: this.pageError.message }), ' ',

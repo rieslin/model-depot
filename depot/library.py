@@ -99,6 +99,9 @@ class Library:
                            "last": None}
         self.hash_state = {"running": False, "active": {}, "session_bytes": 0, "session_files": 0, "samples": []}
         self.civitai_state = {"running": False, "last_at": None, "last_error": None, "waiting_until": None}
+        # can civitai be reached by the route in the settings: "unknown" until the first probe, then "ok" or "down"
+        self.reach_state = {"state": "unknown", "checked_at": None}
+        self._route_changed = False     # the settings changed since the last probe
         self.cover_state = {"running": False, "made": 0, "failed": 0}
         self.card_state = {"running": False, "drafted": 0}
         self.prewarm_state = {"running": False, "pages": 0, "samples": 0, "failed": 0, "last_error": None}
@@ -132,7 +135,7 @@ class Library:
 
     # ---- life cycle ------------------------------------------------------------------------------------------------
     async def start(self):
-        self._wake = {name: asyncio.Event() for name in ("hash", "civitai", "covers", "cards", "prewarm")}
+        self._wake = {name: asyncio.Event() for name in ("hash", "civitai", "covers", "cards", "prewarm", "reach")}
         # Threads start only as they are needed; how many files are read at once is decided in _hash_loop.
         self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="depot-hash")
         self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="depot-scan")
@@ -142,9 +145,11 @@ class Library:
                        asyncio.ensure_future(self._guard(self._civitai_loop, "civitai")),
                        asyncio.ensure_future(self._guard(self._cover_loop, "covers")),
                        asyncio.ensure_future(self._guard(self._card_loop, "cards")),
-                       asyncio.ensure_future(self._guard(self._prewarm_loop, "prewarm"))]
+                       asyncio.ensure_future(self._guard(self._prewarm_loop, "prewarm")),
+                       asyncio.ensure_future(self._guard(self._reach_loop, "reach"))]
         await self.reader.start()
         if self.cfg.configured:
+            self._wake["reach"].set()
             self.request_scan()
 
     async def stop(self):
@@ -203,6 +208,10 @@ class Library:
     async def reconfigure(self):
         """Called after the settings were saved: new folders, new key, new network route, another local model."""
         await self._close_client()
+        self.reach_state.update(state="unknown", checked_at=None)
+        self._route_changed = True
+        if "reach" in self._wake:
+            self._wake["reach"].set()       # a new route: is civitai reachable by it?
         self.reader.reconfigure()
         self.store = Store(self.cfg.library_dir())
         self.names = self.store.load_names()
@@ -213,12 +222,76 @@ class Library:
     def _default_client(self, cfg):
         token, _problem = cfg.civitai_token()
         civ = cfg.data["civitai"]
-        return CivitaiClient(civ["sites"], token=token, proxy=cfg.proxy(), request_interval=civ["request_interval"],
+        return CivitaiClient(civ["sites"], token=token, proxy=cfg.proxy, request_interval=civ["request_interval"],
                              image_interval=civ["image_interval"])
+
+    # ---- can civitai be reached ------------------------------------------------------------------------------------
+    def _civitai_down(self):
+        """A civitai host stopped answering: probe, so that the state is known (and kept) while it stays down."""
+        if self.reach_state["state"] != "down" and "reach" in self._wake:
+            self._wake["reach"].set()
+
+    def _civitai_up(self):
+        """civitai answered a request the user made by hand while it counted as unreachable."""
+        self.reach_state.update(state="ok", checked_at=time.time())
+        log.info("civitai can be reached again")
+        self._reachable_again()
+        self._changed()
+
+    async def _reach_loop(self):
+        """At start, after the settings change, and when a request fails: ask civitai for one small answer. When it
+        cannot be reached, the client is set offline: the program's own requests are answered "unreachable" at once and
+        nothing more is tried until the user tries by hand, the settings change or the program starts again (the
+        user's rule, 2026-10-23). When it answers again, what failed in the meantime is fetched."""
+        await self._wake["reach"].wait()
+        self._wake["reach"].clear()
+        if self._stopping or not self.cfg.configured:
+            return
+        client = self._get_client()
+        ok = await client.probe()
+        self._wake["reach"].clear()             # the probe's own failures do not ask for another
+        was = self.reach_state["state"]
+        client.offline = not ok
+        self.reach_state.update(state="ok" if ok else "down", checked_at=time.time())
+        if was != self.reach_state["state"]:
+            log.info("civitai %s", "can be reached" if ok else
+                     "cannot be reached; nothing more is asked until a manual try, a settings change or the next start")
+            self._changed()
+        if ok and (was == "down" or self._route_changed):
+            self._reachable_again()     # back, or reached by a new route: what failed before is asked again
+        self._route_changed = False
+
+    def _reachable_again(self):
+        """civitai answers again: the fingerprints, covers and example images that failed meanwhile are asked again."""
+        self.db.retry_covers()
+        for model in self.db.cover_candidates():
+            self._queue_cover(model["sha256"])
+        self._sample_failed.clear()
+        self.civitai_state["last_error"] = None
+        self._kick("civitai", "covers", "prewarm")
+
+    def _tried_by_hand(self):
+        """The user started work that asks civitai (check again, fill in, check for updates): it is tried, whatever was
+        known about civitai; when it still cannot be reached, the first failure finds that out again."""
+        if self._client is not None:
+            self._client.clear_down()
+
+    def route_works(self):
+        """A connection test by the saved route reached civitai."""
+        if self._client is not None:
+            self._client.clear_down()
+        if self.reach_state["state"] == "down":
+            self._wake["reach"].set()
+
+    def reachable(self):
+        """{"state": "ok" | "down" | "unknown", "checked_at"} for the route in the settings."""
+        return dict(self.reach_state)
 
     def _get_client(self):
         if self._client is None:
             self._client = self._client_factory(self.cfg)
+            self._client._on_down = self._civitai_down      # whoever made it, the library hears when civitai stops
+            self._client._on_up = self._civitai_up          # answering, and when it answers again
         return self._client
 
     def client(self):
@@ -454,6 +527,7 @@ class Library:
 
     # ---- civitai ---------------------------------------------------------------------------------------------------
     def recheck(self, include_found=False):
+        self._tried_by_hand()
         n = self.db.recheck_civitai(include_found)
         self.db.retry_covers()
         self.civitai_state["last_error"] = None
@@ -681,7 +755,7 @@ class Library:
     def sample_cache_path(self, sha, index):
         return os.path.join(self.cfg.paths.cache, "samples", sha, "%d.jpg" % index)
 
-    async def sample_thumbnail(self, sha, index, interactive=True):
+    async def sample_thumbnail(self, sha, index, interactive=True, force=False, cached_only=False):
         """The path of a small JPEG of example image number `index`, fetched from civitai the first time it is asked
         for and kept in the cache folder: at the pace for someone waiting, or (not `interactive`, warming up) at the
         covers' pace. LookupError when there is no such still image; CivitaiError, or the image library's own error,
@@ -691,6 +765,8 @@ class Library:
         path = self.sample_cache_path(sha, index)
         if os.path.isfile(path):
             return path
+        if cached_only:
+            raise LookupError(sha)
         images = self._sample_images(sha)
         if index >= len(images) or version_info.is_video(images[index]):
             raise LookupError(sha)
@@ -699,7 +775,7 @@ class Library:
             async with lock:
                 if not os.path.isfile(path):
                     url = version_info.sized_image_url(images[index]["url"], thumbs.SAMPLE_WIDTH)
-                    data = await self._get_client().fetch_image(url, interactive=interactive)
+                    data = await self._get_client().fetch_image(url, interactive=interactive, force=force)
                     jpeg, _size = await asyncio.get_running_loop().run_in_executor(None, thumbs.make_sample, data)
                     write_atomic(path, jpeg)
         finally:
@@ -1110,7 +1186,7 @@ class Library:
         return out
 
     # ---- model pages -----------------------------------------------------------------------------------------------
-    async def read_page(self, sha, refresh=False, notes=True):
+    async def read_page(self, sha, refresh=False, notes=True, force=False):
         """Read the civitai page of the model this file is a version of, keep it, and draft again the cards of its
         versions that are here (the author's notes for the whole model are on that page). A page read before is not
         read again unless `refresh`. The notes then go to the local model, if there is one, unless not `notes` (warming
@@ -1130,7 +1206,7 @@ class Library:
                 page = None if refresh else self.store.load_page(model_id)
                 if page is None:
                     try:
-                        site, model = await self._get_client().get_model(model_id)
+                        site, model = await self._get_client().get_model(model_id, force=force)
                     except CivitaiError as e:
                         if e.code != "not_found":
                             raise
@@ -1231,6 +1307,7 @@ class Library:
 
     def start_fill(self, shas=None):
         """Start filling in, for every model or only those of `shas`; False when it is already under way."""
+        self._tried_by_hand()
         if self.fill_state["running"]:
             return False
         self._fill_only = set(shas) if shas is not None else None
@@ -1501,6 +1578,7 @@ class Library:
 
     def start_update_check(self):
         """Read every civitai page of the models here again, to see what is new. False when already under way."""
+        self._tried_by_hand()
         if self.update_state["running"]:
             return False
         self._update_stop = False
@@ -1907,6 +1985,7 @@ class Library:
             "busy": self.busy,
             "scan": {k: self.scan_state[k] for k in ("running", "started_at", "finished_at", "error", "folders", "last")},
             "hash": self.hash_progress(),
+            "reach": dict(self.reach_state),
             "civitai": {"running": self.civitai_state["running"], "found": models["found"],
                         "not_found": models["not_found"], "bundled": models["bundled"], "pending": models["unchecked"],
                         "last_at": self.civitai_state["last_at"], "last_error": self.civitai_state["last_error"],
