@@ -9,7 +9,7 @@
 
 Model Depot is a local manager for image-generation models. It takes stock of the Checkpoints, diffusion models, LoRAs, VAEs and other model files on your computer, identifies each one by its fingerprint against [civitai](https://civitai.com), downloads and updates models from civitai, and keeps a card of recommended settings for every model. Image programs such as [ComfyUI](https://github.com/Comfy-Org/ComfyUI) can read the model list and the settings over a local API. Everything is stored on your own computer.
 
-Version 0.6.2 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
+Version 0.6.3 · Windows app and Windows installer · English and Chinese interface · [GNU GPL 3.0](LICENSE)
 
 ## Features
 

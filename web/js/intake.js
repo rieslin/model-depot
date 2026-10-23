@@ -83,6 +83,13 @@ export class IntakeDrawer {
         this.close();
       }
     });
+    // A press anywhere outside the drawer closes it (the press still does what it does there). The top bar's button
+    // toggles it itself; a dialog the drawer opened (the folder picker, a question) keeps it open.
+    document.addEventListener('pointerdown', (e) => {
+      if (!this.isOpen || e.button !== 0 || document.querySelector('dialog[open]')) return;
+      if (this.root.contains(e.target) || this.button.contains(e.target)) return;
+      this.close();
+    }, true);
     this.build();
     this.refresh();
   }
