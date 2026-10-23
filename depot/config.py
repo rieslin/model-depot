@@ -68,8 +68,9 @@ def defaults():
         # about every model in the library.
         "prewarm": {"enabled": False, "samples": 6},
         # Inbox folders (inbox.py): model files dropped into them are sorted into the library once the user confirms.
-        # `dirs` are kept; `once` (the setup's own models folder) are dropped when nothing is left to sort in them.
-        "inbox": {"dirs": [], "once": []},
+        # `dirs` are kept; `once` (the setup's own models folder) are dropped when nothing is left to sort in them;
+        # `watch` are folders that hold other things too (the browser's downloads): only their own model files count.
+        "inbox": {"dirs": [], "once": [], "watch": []},
     }
 
 
@@ -290,7 +291,8 @@ def normalize(raw):
                 out.append(path)
         return out
 
-    cfg["inbox"] = {"dirs": folder_list(inbox.get("dirs")), "once": folder_list(inbox.get("once"))}
+    cfg["inbox"] = {"dirs": folder_list(inbox.get("dirs")), "once": folder_list(inbox.get("once")),
+                    "watch": folder_list(inbox.get("watch"))}
     return cfg, problems
 
 

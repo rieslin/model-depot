@@ -94,8 +94,9 @@ def copy_vc_runtime(folder):
 OFFICIAL_WORKFLOWS = (
     ("image_z_image_turbo.json", "Z-Image Turbo - Text to Image.json"),
     ("image_z_image.json", "Z-Image Base - Text to Image.json"),
-    ("image_krea2_turbo_t2i.json", "Krea 2 Turbo - Text to Image.json"),
-    ("image_krea2_turbo_t2i_int8.json", "Krea 2 Turbo INT8 - Text to Image.json"),
+    # Krea 2 Turbo in its INT8 form only (the user, 2026-10-24: the FP8 form is the same model; keep one): the one the
+    # optional workflows and Image Atelier use. Earlier packages shipped both; an update removes the other if unchanged.
+    ("image_krea2_turbo_t2i_int8.json", "Krea 2 Turbo - Text to Image.json"),
     ("image_qwen_image_2_1_t2i.json", "Qwen Image 2.1 - Text to Image.json"),
     ("image_qwen_image_2_1_image_edit.json", "Qwen Image 2.1 - Image Edit.json"),
     ("image_anima_base_v1.json", "Anima Base v1 - Text to Image.json"),

@@ -586,10 +586,27 @@ namespace ModelDepotSetup
                     }
                     else if (noted.TryGetValue(rel, out var keptHash)) record[rel] = keptHash;    // changed by the user: kept
                 }
+                // a workflow an earlier package wrote and this one no longer carries (Krea 2's FP8 template, 0.6.5) is
+                // removed when the user has not changed it; a changed one stays as the user's
+                var shippedNow = new HashSet<string>(Directory.GetFiles(temp, "*", SearchOption.AllDirectories)
+                    .Select(f => f.Substring(temp.Length).TrimStart('\\')), StringComparer.OrdinalIgnoreCase);
+                var before = noted.Keys.Concat(EarlierWorkflowNames()).Distinct(StringComparer.OrdinalIgnoreCase);
+                foreach (var rel in before.Where(r => !shippedNow.Contains(r)).ToList())
+                {
+                    var at = Path.Combine(dest, rel);
+                    if (!File.Exists(at)) continue;
+                    var now = Sha256(at);
+                    bool untouched = noted.TryGetValue(rel, out var was) ? was as string == now : EarlierWorkflow(rel, now);
+                    if (untouched) { try { File.Delete(at); } catch { } }
+                }
             }
             finally { TryDelete(temp); }
             return record;
         }
+
+        IEnumerable<string> EarlierWorkflowNames() =>
+            Manifest.TryGetValue("earlier_workflow_files", out var v) && v is Dictionary<string, object> d
+                ? d.Keys.Select(k => k.Replace('/', '\\')) : Enumerable.Empty<string>();
 
         static string Sha256(string path)
         {

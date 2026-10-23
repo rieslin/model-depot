@@ -68,19 +68,6 @@
   },
   {
    "family": "krea2",
-   "role": "diffusion_model",
-   "name": "krea2_turbo_fp8_scaled.safetensors",
-   "directory": "diffusion_models",
-   "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/diffusion_models/krea2_turbo_fp8_scaled.safetensors",
-   "sha256": "eb4dd8c612cfd10f64f25b057e6e6bbcb5737c94a7372177e456dbf7579502f1",
-   "bytes": 13141730784,
-   "use": {
-    "zh": "Krea 2 Turbo 扩散模型（FP8）",
-    "en": "Krea 2 Turbo diffusion model (FP8)"
-   }
-  },
-  {
-   "family": "krea2",
    "role": "text_encoder",
    "name": "qwen3vl_4b_fp8_scaled.safetensors",
    "directory": "text_encoders",

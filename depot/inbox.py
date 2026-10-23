@@ -1,8 +1,10 @@
 """Inbox folders: model files dropped into them are sorted into the model library.
 
 The Windows setup sets two: the `models` folder next to the setup itself, sorted once, and a `models` folder next to
-the installed program, kept for files added later. The page lists what is in them and where each file would go; only
-what the user confirms is moved.
+the installed program, kept for files added later. A folder that holds other things too, such as the browser's
+downloads (where ComfyUI's "download missing model" saves to), can be watched instead: only the model files directly
+in it are listed, and the rest of it is neither listed nor walked. The page lists what is in them and where each file
+would go; only what the user confirms is moved.
 
 Where a file goes, from its header alone (sniff.py; nothing is asked of civitai):
   - its ComfyUI type (checkpoints, loras, vae, ...) picks the model folder from the settings: the one named like the
@@ -76,10 +78,10 @@ class Inbox:
 
     # ---- what is there ----------------------------------------------------------------------------------------------
     def folders(self):
-        """[(path, once)] of the inbox folders that exist."""
+        """[(path, mode)] of the inbox folders that exist; mode "dirs", "once" or "watch" (the settings list)."""
         box = self.cfg.data["inbox"]
-        out = [(p, False) for p in box["dirs"]] + [(p, True) for p in box["once"]]
-        return [(p, once) for p, once in out if os.path.isdir(p)]
+        out = [(p, mode) for mode in ("dirs", "once", "watch") for p in box.get(mode) or []]
+        return [(p, mode) for p, mode in out if os.path.isdir(p)]
 
     def _target(self, header, path, size):
         """(comfy_type, family, kind) for a model file, or (None, ...) when it cannot be told."""
@@ -128,7 +130,9 @@ class Inbox:
         return root
 
     def plan(self, stats):
-        """What is in the inbox folders: {"folders": [{"path", "once"}], "items": [...], "skipped": [...], "bytes"}.
+        """What is in the inbox folders: {"folders": [{"path", "once", "watch"}], "items": [...], "skipped": [...],
+        "bytes"}. A watched folder adds only its own model files: no sub-folders, nothing to the skipped list but files
+        already in the library or blocked by a file of the same name.
         items: files that would be moved, each {"path", "name", "bytes", "comfy_type", "kind", "family", "dest",
         "rel", "sidecars", "keep"}; keep: the original stays (a removable drive). skipped: {"path", "name", "bytes",
         "reason": "not_model" | "unknown" | "no_folder" | "already_there" | "name_taken", "dest"?}.
@@ -136,8 +140,11 @@ class Inbox:
         the rest reads files and runs in a worker thread."""
         boxes = self.folders()
         items, skipped, taken = [], [], set()
-        for box, _once in boxes:
+        for box, mode in boxes:
+            watched = mode == "watch"
             for current, names in scan.walk(box):
+                if watched and os.path.normcase(current) != os.path.normcase(box):
+                    break           # a watched folder: only the files directly in it (os.walk gives the folder first)
                 names_lower = {n.lower(): n for n in names}
                 claimed = set()
                 models = [n for n in names if os.path.splitext(n)[1].lower() in kinds.MODEL_EXTENSIONS]
@@ -152,12 +159,14 @@ class Inbox:
                     except OSError:
                         continue
                     if name not in models:
-                        skipped.append({"path": path, "name": name, "bytes": size, "reason": "not_model"})
+                        if not watched:
+                            skipped.append({"path": path, "name": name, "bytes": size, "reason": "not_model"})
                         continue
                     header = self._header(path, name)
                     ctype, family, kind = self._target(header, path, size)
                     if ctype is None:
-                        skipped.append({"path": path, "name": name, "bytes": size, "reason": "unknown"})
+                        if not watched:     # (a downloads folder's other .bin and .onnx files are none of ours)
+                            skipped.append({"path": path, "name": name, "bytes": size, "reason": "unknown"})
                         continue
                     dest_dir = self._destination(ctype, family, kind, stats, size)
                     if dest_dir is None:
@@ -180,7 +189,8 @@ class Inbox:
                                   "family": family, "dest": dest, "rel": rel,
                                   "arch": ((header or {}).get("meta") or {}).get("general.architecture"),
                                   "sidecars": _sidecars(current, name, names_lower), "keep": _removable(path)})
-        return {"folders": [{"path": p, "once": once} for p, once in boxes], "items": items, "skipped": skipped,
+        return {"folders": [{"path": p, "once": mode == "once", "watch": mode == "watch"} for p, mode in boxes],
+                "items": items, "skipped": skipped,
                 "bytes": sum(i["bytes"] for i in items)}
 
     def _header(self, path, name):
