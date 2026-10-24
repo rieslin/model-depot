@@ -14,7 +14,7 @@
     <RootNamespace>ModelDepot</RootNamespace>
     <ApplicationIcon>ModelDepot.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.6.5</Version>
+    <Version>0.6.6</Version>
     <Product>Model Depot</Product>
     <AssemblyTitle>Model Depot</AssemblyTitle>
     <OutputPath>app\</OutputPath>

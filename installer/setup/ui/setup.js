@@ -589,7 +589,7 @@ async function start() {
 // ---- the sample answers of ?demo ----------------------------------------------------------------------------------
 const Demo = {
   info: {
-    mode: 'install', lang: 'zh', version: '0.6.5', comfyui: '0.42.5', upgrade: false,
+    mode: 'install', lang: 'zh', version: '0.6.6', comfyui: '0.42.5', upgrade: false,
     parts: [{ name: 'app', bytes: 52e6 }, { name: 'python', bytes: 40e6 }, { name: 'llm', bytes: 700e6 }, { name: 'comfyui', bytes: 6.2e9 },
       { name: 'library', bytes: 1.95e9 }, { name: 'workflows', bytes: 1e6 }],
     bytes: 8.94e9, counts: { custom_nodes: 5, official: 6, optional: 20 },
@@ -600,7 +600,7 @@ const Demo = {
     inbox: { path: 'E:\\Model Depot Setup\\Model Inbox', files: 6, bytes: 41.0 * 1024 ** 3 },
   },
   call(cmd, args) {
-    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.5', install: 'D:\\Model Depot',
+    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.6', install: 'D:\\Model Depot',
       kept: { library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data', inbox: 'D:\\Model Depot\\Model Inbox',
         comfy_plugins: ['ComfyUI-OpenWorkflow', 'ComfyUI-Anima-Artists'],
         comfy_user: 'D:\\Model Depot\\ComfyUI\\ComfyUI' } } : this.info);

@@ -27,8 +27,8 @@ import os
 import time
 import uuid
 
-from . import cards, families, folders, hashing, image_meta, kinds, llm_install, reader as reader_mod, scan, sidecar
-from . import names as names_mod, thumbs, training, trash, updates, version_info
+from . import cards, companions, families, folders, hashing, image_meta, kinds, llm_install, reader as reader_mod, scan
+from . import names as names_mod, sidecar, thumbs, training, trash, updates, version_info
 from .civitai import BATCH_SIZE, CivitaiClient, CivitaiError
 from .store import Store, is_sha256, write_atomic
 
@@ -1785,8 +1785,9 @@ class Library:
         if Library._training_facts(row):
             return "local"
         # an upscaler, a text encoder or a custom node's model civitai does not know: nothing online would add to it,
-        # and HuggingFace cannot be asked by fingerprint (the user's word, 2026-10-06)
-        return "no_check" if row["kind"] in NO_CHECK_KINDS else "unidentified"
+        # and HuggingFace cannot be asked by fingerprint (the user's word, 2026-10-06); nor an official file of the
+        # companions list (SeedVR2's model and VAE), known by its fingerprint
+        return "no_check" if row["kind"] in NO_CHECK_KINDS or companions.known(row["sha256"]) else "unidentified"
 
     @staticmethod
     def _training_facts(row):

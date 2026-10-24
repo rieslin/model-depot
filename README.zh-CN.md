@@ -9,7 +9,7 @@
 
 Model Depot 是本机图像生成模型的管理程序。它清点电脑上的 Checkpoint、扩散模型、LoRA、VAE 等模型文件，凭文件指纹与 [civitai](https://civitai.com) 核对每个文件的来源，从 civitai 下载和更新模型，并为每个模型保存一张推荐参数资料卡。[ComfyUI](https://github.com/Comfy-Org/ComfyUI) 等出图程序可经本地接口读取模型清单与推荐参数。全部数据保存在本机。
 
-版本 0.6.5 · 提供 Windows 应用与 Windows 安装包 · 中英文界面 · [GNU GPL 3.0](LICENSE)
+版本 0.6.6 · 提供 Windows 应用与 Windows 安装包 · 中英文界面 · [GNU GPL 3.0](LICENSE)
 
 ## 功能
 

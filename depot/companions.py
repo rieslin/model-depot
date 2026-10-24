@@ -19,6 +19,11 @@ def table():
     return _table
 
 
+def known(sha256):
+    """True for the fingerprint of a file on the list (an official file, whatever civitai knows of it)."""
+    return bool(sha256) and any(row["sha256"] == sha256 for row in table()["files"])
+
+
 def subfolder(comfy_type, sha256=None, size=None):
     """The sub-folder a file of this ComfyUI type goes in, by its fingerprint or its exact size; "" when none."""
     for row in table()["files"]:
