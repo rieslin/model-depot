@@ -46,11 +46,10 @@ def version_record(model, version):
     return out
 
 
-def first_still(images):
-    for i, image in enumerate(images or []):
-        if isinstance(image, dict) and image.get("url") and not version_info.is_video(image):
-            return i
-    return None
+def cover_index(images):
+    """Which example is the cover (version_info.pick_cover_image), by its number."""
+    chosen = version_info.pick_cover_image(images)
+    return next((i for i, image in enumerate(images) if image is chosen), None)
 
 
 class Intake:
@@ -167,7 +166,7 @@ class Intake:
             "images": [{"index": i, "type": "video" if version_info.is_video(img) else "image",
                         "level": version_info.image_level(img), "width": img.get("width"), "height": img.get("height")}
                        for i, img in enumerate(images[:PREVIEW_IMAGES])],
-            "cover": first_still(images),
+            "cover": cover_index(images),
             "files": files, "chosen": chosen, "comfy_type": ctype,
             "suggestion": self.suggest(ctype, family),
         }
@@ -222,23 +221,22 @@ class Intake:
 
     # ---- example images of a version that is not in the library ----------------------------------------------------
     async def image(self, version_id, index, version=None):
-        """The path of a small JPEG of one example image of a version: fetched from civitai the first time and kept
-        in the cache folder. `version` is the version object when the caller has it (a queued download); otherwise
-        it comes from the models read lately. LookupError when there is no such still image."""
+        """The path of a small JPEG of one example of a version (of a video, its first frame): fetched from civitai the
+        first time and kept in the cache folder. `version` is the version object when the caller has it (a queued
+        download); otherwise it comes from the models read lately. LookupError when there is no such example."""
         path = os.path.join(self.cfg.paths.cache, "intake", str(int(version_id)), "%d.jpg" % int(index))
         if os.path.isfile(path):
             return path
         if version is None:
             _model, version = self.cached_version(int(version_id))
         images = [img for img in (version or {}).get("images") or [] if isinstance(img, dict) and img.get("url")]
-        if not 0 <= index < len(images) or version_info.is_video(images[index]):
+        if not 0 <= index < len(images):
             raise LookupError(version_id)
         lock = self._image_locks.setdefault(path, asyncio.Lock())
         try:
             async with lock:
                 if not os.path.isfile(path):
-                    url = version_info.sized_image_url(images[index]["url"], thumbs.MAX_WIDTH)
-                    data = await self.library.client().fetch_image(url, interactive=True)
+                    data = await self.library.client().fetch_example_picture(images[index], thumbs.MAX_WIDTH, interactive=True)
                     jpeg, _size = await asyncio.get_running_loop().run_in_executor(None, thumbs.make_cover, data)
                     write_atomic(path, jpeg)
         finally:

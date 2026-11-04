@@ -148,7 +148,7 @@ export function renderInventory(root) {
     let state = '';
     if (fl.running) state = t('inv.fill_running', fl);
     else if (needs) {
-      state = !needs.pages && !needs.samples && !needs.notes ? t('inv.fill_complete')
+      state = !needs.pages && !needs.samples && !needs.videos && !needs.notes ? t('inv.fill_complete')
         : t(needs.reader_ready ? 'inv.fill_needs' : 'inv.fill_needs_rules', needs);
     }
     const last = fl.running || !fl.finished_at ? null

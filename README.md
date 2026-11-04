@@ -20,7 +20,7 @@ Version 0.6.6 · Windows app and Windows installer · English and Chinese interf
 - Imports the `.civitai.info`, `.json` and `.preview.png` files an older WebUI left beside the models, without changing them.
 
 **Model dossier**
-- Leads with the author's example images, each with its prompt, settings and the resources it used; images are fetched once and kept for offline use.
+- Leads with the author's example images and videos, each with its prompt, settings and the resources it used; they are fetched once and kept for offline use.
 - Trigger words with one-click copy, marking which are optional.
 - A recommended-settings card drafted from the example images and from the settings the author's notes state. A local language model (llama.cpp with a GGUF model) can read the notes; without one, rule-based reading is used.
 - Edit the name, base model, settings, trigger words and notes; add your own images (their generation settings are read from what WebUI or ComfyUI wrote into PNG, JPEG and WebP files) and choose any still image as the cover.
@@ -85,7 +85,7 @@ Everything Model Depot writes goes into one data folder: `data/` in the project,
 | `config.json` | Settings |
 | `library/` | One record and one cover per model, named by fingerprint; saved civitai model pages; copies of images you added. This is the part worth backing up, and it contains no local paths. |
 | `index.sqlite` | The index, rebuilt from the model files and the records when needed |
-| `cache/` | Small copies of the authors' example images; safe to delete |
+| `cache/` | Small copies of the authors' example images and videos; safe to delete |
 | `logs/` | Logs |
 
 Settings the page does not show are edited in `config.json`, followed by a restart: `server.host`, `server.port` (default 8194), `remote_access`, `hashing.workers`, and `prewarm` (fetch model pages and example images ahead of time after each scan; off by default).

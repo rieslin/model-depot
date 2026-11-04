@@ -565,7 +565,7 @@ export class IntakeDrawer {
   // One example image: a picture, a mosaic when it is rated R or above and masking is on, or a dotted placeholder.
   picture(v, index, aspect, cls, cols) {
     const image = (v.images || []).find((x) => x.index === index);
-    if (!image || image.type === 'video') return h('span', { class: cls + ' ph' }, image ? icon('i-play') : null);
+    if (!image) return h('span', { class: cls + ' ph' });
     const key = v.id + '/' + index;
     const masked = masking() && image.level >= MASK_FROM && !this.revealed.has(key);
     if (!masked) {
@@ -590,11 +590,12 @@ export class IntakeDrawer {
     const image = v.images.find((x) => x.index === index);
     const hero = h('div', { class: 'rec-hero' }, this.picture(v, index, COVER_ASPECT, 'hero-img', 9));
     const key = v.id + '/' + index;
-    if (image && image.type !== 'video' && masking() && image.level >= MASK_FROM && !this.revealed.has(key)) {
+    if (image && masking() && image.level >= MASK_FROM && !this.revealed.has(key)) {
       hero.append(h('button', { class: 'reveal', type: 'button', onclick: () => { this.revealed.add(key); this.renderRecords(); } },
         t('dos.sample_reveal') + ' · ' + levelName(image.level)));
     }
     if (image && image.level >= MASK_FROM) hero.append(h('span', { class: 'level' }, levelName(image.level)));
+    if (image && image.type === 'video') hero.append(h('span', { class: 'thumb-play', 'aria-hidden': 'true' }, icon('i-play')));
     return hero;
   }
 
@@ -605,7 +606,8 @@ export class IntakeDrawer {
     return h('div', { class: 'rec-thumbs', role: 'group', 'aria-label': t('dos.samples') }, stills.map((image) => h('button', {
       class: 'rec-thumb', type: 'button', 'aria-current': String(image.index === current),
       'aria-label': t('dos.sample_n', { n: image.index + 1, total: v.images.length }),
-      onclick: () => { rec.image = image.index; this.renderRecords(); } }, this.picture(v, image.index, THUMB_ASPECT, 'thumb-img', 5))));
+      onclick: () => { rec.image = image.index; this.renderRecords(); } }, this.picture(v, image.index, THUMB_ASPECT, 'thumb-img', 5),
+      image.type === 'video' ? h('span', { class: 'thumb-play', 'aria-hidden': 'true' }, icon('i-play')) : null)));
   }
 
   // ---- adding to the queue ---------------------------------------------------------------------------------------

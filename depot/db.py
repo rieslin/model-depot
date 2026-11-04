@@ -13,7 +13,7 @@ import time
 
 log = logging.getLogger("depot.db")
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _DOWNLOADS = """
 CREATE TABLE IF NOT EXISTS downloads (
@@ -86,6 +86,8 @@ _MIGRATIONS = {
     5: _CARDS,
     6: _USER,
     7: _URL,
+    # A version with only video examples has a cover now (its first frame): those without one are looked at again.
+    8: ("UPDATE models SET cover_state='pending' WHERE cover_state='none'",),
 }
 
 _CARD_KINDS = "('checkpoint', 'diffusion_model', 'lora', 'embedding')"

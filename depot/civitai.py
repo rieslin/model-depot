@@ -45,6 +45,9 @@ _MAX_REDIRECTS = 5
 _STREAM_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=20, sock_read=60)
 # Someone is waiting: a model page is about 200 KB and civitai answers within a second or two when it can be reached.
 _QUICK_TIMEOUT = aiohttp.ClientTimeout(total=12, sock_connect=5, sock_read=6)
+# An example image fills in on the page while nobody waits on it. A dead route still shows at the connection; civitai's
+# image host can take 20 s or more over an address it has not served lately.
+_PICTURE_TIMEOUT = aiohttp.ClientTimeout(total=60, sock_connect=5, sock_read=45)
 # After a host could not be reached, requests someone waits for are answered "unreachable" at once for this long;
 # when two hosts are down together, the route itself is (a proxy that died, a VPN switched off), and all of them are.
 COOLDOWN = 60.0
@@ -278,7 +281,7 @@ class CivitaiClient:
         raise CivitaiError("network", "too many redirects")
 
     async def _call(self, method, url, body=None, auth=True, limit=MAX_JSON_BYTES, throttle=None, retry_delays=None,
-                    quick=False, force=False):
+                    quick=False, force=False, timeout=None):
         """_fetch with the waiting and the retries: spaced out, tried again after a hiccup, never hammering.
 
         A host that failed within the last minute is not asked (CivitaiError "network" at once) unless `force` (the user
@@ -295,7 +298,7 @@ class CivitaiClient:
             await throttle.wait()
             try:
                 status, ctype, payload, final, carried = await self._fetch(
-                    method, url, body, auth, limit, timeout=_QUICK_TIMEOUT if quick else None)
+                    method, url, body, auth, limit, timeout=timeout or (_QUICK_TIMEOUT if quick else None))
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last = CivitaiError("network", type(e).__name__)
                 self._note_down(where)
@@ -376,7 +379,7 @@ class CivitaiClient:
         if interactive:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
                                                       throttle=self._sample_throttle, retry_delays=(1.0,), quick=True,
-                                                      force=force)
+                                                      force=force, timeout=_PICTURE_TIMEOUT)
         else:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
                                                       throttle=self._image_throttle)
@@ -387,6 +390,58 @@ class CivitaiClient:
         if ctype and not ctype.lower().startswith(("image/", "application/octet-stream", "binary/")):
             raise CivitaiError("not_json", "not an image: " + ctype[:40], status)
         return payload
+
+    async def fetch_example_picture(self, image, width, interactive=False, force=False):
+        """An example as a picture (version_info.picture_urls): an address that answers with something else, the whole
+        video, is passed over for the next."""
+        urls = version_info.picture_urls(image, width)
+        for url in urls[:-1]:
+            try:
+                return await self.fetch_image(url, interactive=interactive, force=force)
+            except CivitaiError as e:
+                if e.code not in ("not_json", "too_large"):
+                    raise
+        return await self.fetch_image(urls[-1], interactive=interactive, force=force)
+
+    @contextlib.asynccontextmanager
+    async def open_video(self, url, interactive=False, force=False):
+        """A video example from civitai's image host, as an open response. The API key is never sent. Spaced as images
+        are, for someone waiting (interactive) or at the covers' pace; no retries: the page or the next run asks again."""
+        where = _netloc(url)
+        if not force and self._cooling(where):
+            raise CivitaiError("network", "%s did not answer a moment ago" % _host(url))
+        await (self._sample_throttle if interactive else self._image_throttle).wait()
+        session = self._get_session()
+        for _ in range(_MAX_REDIRECTS + 1):
+            self.requests_made += 1
+            try:
+                resp = await session.get(url, headers={"Accept": "*/*"}, proxy=self.proxy, allow_redirects=False,
+                                         timeout=_STREAM_TIMEOUT)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                self._note_down(where)
+                raise CivitaiError("network", type(e).__name__) from e
+            try:
+                status = resp.status
+                if status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
+                    url = urljoin(url, resp.headers["Location"])
+                    continue
+                log.info("video %s%s -> %s (%s bytes)", _host(url), urlsplit(url).path, status,
+                         resp.headers.get("Content-Length", "?"))
+                if status == 200:
+                    self._note_up(url)
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if not ctype.startswith(("video/", "application/octet-stream", "binary/")):
+                        raise CivitaiError("not_a_file", ctype[:40], status)
+                    yield resp
+                    return
+                if status == 404:
+                    raise CivitaiError("not_found", _host(url), status)
+                if status == 429:
+                    raise CivitaiError("rate_limited", _host(url), status)
+                raise CivitaiError("server", _host(url), status)
+            finally:
+                resp.release()
+        raise CivitaiError("network", "too many redirects")
 
     # ---- reading a pasted link -------------------------------------------------------------------------------------
     async def _get_object(self, path, force=False):

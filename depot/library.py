@@ -28,7 +28,7 @@ import time
 import uuid
 
 from . import cards, companions, families, folders, hashing, image_meta, kinds, llm_install, reader as reader_mod, scan
-from . import names as names_mod, sidecar, thumbs, training, trash, updates, version_info
+from . import names as names_mod, sidecar, thumbs, training, trash, updates, version_info, videos
 from .civitai import BATCH_SIZE, CivitaiClient, CivitaiError
 from .store import Store, is_sha256, write_atomic
 
@@ -87,6 +87,7 @@ class Library:
         self._summary = None            # (revision, summary)
         self._folder_stats = None       # (revision, stats)
         self._sample_locks = {}         # one download at a time per example image
+        self._video_jobs = {}           # path -> the fetch under way of a video example
         self._page_locks = {}           # one reading of a model page at a time per model
         # Files a download has just written, whose fingerprint is already known: {normcased path: (bytes, mtime, sha)}.
         # The next scan takes the fingerprint from here instead of reading the file again.
@@ -107,7 +108,7 @@ class Library:
         self.prewarm_state = {"running": False, "pages": 0, "samples": 0, "failed": 0, "last_error": None}
         # filling in the details at the user's request (fill_needs, start_fill): the last run, or the one under way
         self.fill_state = {"running": False, "started_at": None, "finished_at": None, "total": 0, "done": 0, "pages": 0,
-                           "samples": 0, "notes": 0, "failed": 0, "error": None, "stopped": False}
+                           "samples": 0, "videos": 0, "notes": 0, "failed": 0, "error": None, "stopped": False}
         self._fill_task = None
         self._fill_stop = False
         self._fill_queued = set()       # the readings filling in asked for, taken back out if it is stopped
@@ -156,6 +157,7 @@ class Library:
         self._stopping = True
         self.control.abort()
         tasks = [t for t in self._tasks + [self._scan_task, self._fill_task, self._update_task] if t is not None]
+        tasks += [job.task for job in self._video_jobs.values()]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -721,7 +723,7 @@ class Library:
             self.db.set_cover(sha, "none")
             return
         try:
-            data = await self._get_client().fetch_image(version_info.sized_image_url(image["url"], thumbs.MAX_WIDTH))
+            data = await self._get_client().fetch_example_picture(image, thumbs.MAX_WIDTH)
             jpeg, _size = await loop.run_in_executor(None, thumbs.make_cover, data)
         except CivitaiError as e:
             log.info("cover download for %s failed: %s", sha[:12], e.code)
@@ -756,10 +758,10 @@ class Library:
         return os.path.join(self.cfg.paths.cache, "samples", sha, "%d.jpg" % index)
 
     async def sample_thumbnail(self, sha, index, interactive=True, force=False, cached_only=False):
-        """The path of a small JPEG of example image number `index`, fetched from civitai the first time it is asked
-        for and kept in the cache folder: at the pace for someone waiting, or (not `interactive`, warming up) at the
-        covers' pace. LookupError when there is no such still image; CivitaiError, or the image library's own error,
-        when it cannot be had."""
+        """The path of a small JPEG of example number `index` (of a video, its first frame), fetched from civitai the
+        first time it is asked for and kept in the cache folder: at the pace for someone waiting, or (not `interactive`,
+        warming up) at the covers' pace. LookupError when there is no such example; CivitaiError, or the image library's
+        own error, when it cannot be had."""
         if not is_sha256(sha) or index < 0:
             raise LookupError(sha)
         path = self.sample_cache_path(sha, index)
@@ -768,20 +770,71 @@ class Library:
         if cached_only:
             raise LookupError(sha)
         images = self._sample_images(sha)
-        if index >= len(images) or version_info.is_video(images[index]):
+        if index >= len(images):
             raise LookupError(sha)
         lock = self._sample_locks.setdefault(path, asyncio.Lock())
         try:
             async with lock:
                 if not os.path.isfile(path):
-                    url = version_info.sized_image_url(images[index]["url"], thumbs.SAMPLE_WIDTH)
-                    data = await self._get_client().fetch_image(url, interactive=interactive, force=force)
+                    data = await self._get_client().fetch_example_picture(images[index], thumbs.SAMPLE_WIDTH,
+                                                                          interactive=interactive, force=force)
                     jpeg, _size = await asyncio.get_running_loop().run_in_executor(None, thumbs.make_sample, data)
                     write_atomic(path, jpeg)
         finally:
             if not lock.locked():
                 self._sample_locks.pop(path, None)
         return path
+
+    def sample_video_path(self, sha, index):
+        return os.path.join(self.cfg.paths.cache, "samples", sha, "%d.mp4" % index)
+
+    async def _video_fetch(self, sha, index, interactive, force=False):
+        """The fetch under way for this video, joined or started; None when the copy is already here. LookupError when
+        the example is not a video."""
+        if not is_sha256(sha) or index < 0:
+            raise LookupError(sha)
+        path = self.sample_video_path(sha, index)
+        while True:
+            if os.path.isfile(path):
+                return None
+            job = self._video_jobs.get(path)
+            if job is None:
+                break
+            if not job.abandoned:
+                return job
+            await job.ended()       # its last viewer left a moment ago: it clears its file first
+        images = self._sample_images(sha)
+        if index >= len(images) or not version_info.is_video(images[index]):
+            raise LookupError(sha)
+        url = version_info.video_url(images[index], thumbs.SAMPLE_WIDTH)
+        job = videos.VideoFetch(self._get_client(), url, path, interactive, force,
+                                on_end=lambda: self._video_jobs.pop(path, None))
+        self._video_jobs[path] = job
+        return job
+
+    async def sample_video(self, sha, index, force=False):
+        """A video example for someone watching: (the kept copy's path, None), or (None, the fetch under way), which the
+        caller follows and then leaves. LookupError when there is no such video, CivitaiError when it cannot be had."""
+        job = await self._video_fetch(sha, index, True, force)
+        if job is None:
+            return self.sample_video_path(sha, index), None
+        job.watchers += 1
+        try:
+            await job.started()
+        except BaseException:
+            job.leave()
+            raise
+        return None, job
+
+    async def keep_sample_video(self, sha, index):
+        """Fetch a video example to the cache folder at the covers' pace, whether or not anyone watches."""
+        job = await self._video_fetch(sha, index, False)
+        if job is None:
+            return
+        job.keep = True
+        await job.ended()
+        if job.error is not None:
+            raise job.error
 
     def file_paths(self, sha):
         """Where the copies of a model are on disk."""
@@ -920,8 +973,7 @@ class Library:
         loop = asyncio.get_running_loop()
         if sample is not None:
             images = self._sample_images(sha)
-            if isinstance(sample, bool) or not isinstance(sample, int) or not 0 <= sample < len(images) \
-                    or version_info.is_video(images[sample]):
+            if isinstance(sample, bool) or not isinstance(sample, int) or not 0 <= sample < len(images):
                 raise LookupError(sample)
             chosen = images[sample]
             path = await self.sample_thumbnail(sha, sample)
@@ -1246,9 +1298,7 @@ class Library:
                     if self.store.load_page(model_id) is None:
                         await self.read_page(sha, notes=False)
                         state["pages"] += 1
-                    images = self._sample_images(sha)
-                    stills = [i for i, image in enumerate(images) if not version_info.is_video(image)][:warm["samples"]]
-                    for index in stills:
+                    for index in range(min(len(self._sample_images(sha)), warm["samples"])):
                         if self._stopping:
                             return
                         if not os.path.isfile(self.sample_cache_path(sha, index)):
@@ -1274,10 +1324,16 @@ class Library:
     _CIVITAI_DOWN = ("network", "rate_limited", "server", "auth")
 
     def _missing_samples(self, sha):
-        """The still example images of a model not fetched yet (and not found missing on civitai in this run)."""
+        """The example images (a video's first frame among them) of a model not fetched yet, and not found missing on
+        civitai in this run."""
+        return [i for i, _image in enumerate(self._sample_images(sha))
+                if (sha, i) not in self._sample_failed and not os.path.isfile(self.sample_cache_path(sha, i))]
+
+    def _missing_videos(self, sha):
+        """The video examples of a model not fetched yet, and not found missing on civitai in this run."""
         return [i for i, image in enumerate(self._sample_images(sha))
-                if not version_info.is_video(image) and (sha, i) not in self._sample_failed
-                and not os.path.isfile(self.sample_cache_path(sha, i))]
+                if version_info.is_video(image) and (sha, i, "video") not in self._sample_failed
+                and not os.path.isfile(self.sample_video_path(sha, i))]
 
     def _notes_to_read(self, sha, kind, page_missing):
         """Would filling in hand this model's notes to the local model? Not when it has read them as they are now; a
@@ -1291,14 +1347,15 @@ class Library:
         return bool(view.get("has_notes") or page_missing)
 
     def fill_needs(self):
-        """What filling in would do now: {"models", "pages", "samples", "notes", "reader_ready"}: civitai pages not read,
-        example images not fetched, notes the local model has yet to read (when one is set up)."""
-        out = {"models": 0, "pages": 0, "samples": 0, "notes": 0, "reader_ready": self.reader.availability()[0]}
+        """What filling in would do now: {"models", "pages", "samples", "videos", "notes", "reader_ready"}: civitai pages
+        not read, example images and videos not fetched, notes the local model has yet to read (when one is set up)."""
+        out = {"models": 0, "pages": 0, "samples": 0, "videos": 0, "notes": 0, "reader_ready": self.reader.availability()[0]}
         for sha, model_id, kind in self.db.named_models():
             out["models"] += 1
             page_missing = bool(model_id) and self.store.load_page(model_id) is None
             out["pages"] += page_missing
             out["samples"] += len(self._missing_samples(sha))
+            out["videos"] += len(self._missing_videos(sha))
             out["notes"] += self._notes_to_read(sha, kind, page_missing)
         return out
 
@@ -1313,7 +1370,7 @@ class Library:
         self._fill_only = set(shas) if shas is not None else None
         self._fill_stop = False
         self.fill_state.update(running=True, started_at=time.time(), finished_at=None, total=0, done=0, pages=0, samples=0,
-                               notes=0, failed=0, error=None, stopped=False)
+                               videos=0, notes=0, failed=0, error=None, stopped=False)
         self._fill_task = asyncio.ensure_future(self._fill_run())
         return True
 
@@ -1324,8 +1381,8 @@ class Library:
         self._fill_queued.clear()
 
     async def _fill_run(self):
-        """Each model civitai or the old WebUI's files name, oldest first: its page when it has none, then every still
-        example image not fetched yet, at the background work's pace; then its notes go to the local model's queue
+        """Each model civitai or the old WebUI's files name, oldest first: its page when it has none, then every example
+        image and video not fetched yet, at the background work's pace; then its notes go to the local model's queue
         (which reads them one by one, giving the graphics card way to other programs). Stops when civitai does not
         answer well: what is done stays done, and a new start goes quickly over it."""
         state = self.fill_state
@@ -1356,6 +1413,20 @@ class Library:
                             state["failed"] += 1
                         except (LookupError, OSError, ValueError):     # a picture civitai no longer has, or a broken one
                             self._sample_failed.add((sha, index))
+                            state["failed"] += 1
+                    for index in self._missing_videos(sha):
+                        if self._fill_stop or self._stopping:
+                            break
+                        try:
+                            await self.keep_sample_video(sha, index)
+                            state["videos"] += 1
+                        except CivitaiError as e:
+                            if e.code in self._CIVITAI_DOWN:
+                                raise
+                            self._sample_failed.add((sha, index, "video"))
+                            state["failed"] += 1
+                        except (LookupError, OSError):
+                            self._sample_failed.add((sha, index, "video"))
                             state["failed"] += 1
                     if self._notes_to_read(sha, kind, False) and self.reader.request(sha):
                         self._fill_queued.add(sha)
@@ -1928,12 +1999,14 @@ class Library:
         obj["page"] = self._page_summary(obj["civitai"], page)
         obj["update"] = self._update_view(sha, rows[0]) if obj["civitai"] else None
         obj["samples"] = version_info.samples(version)
-        # the copy kept here of each still example (fetched from civitai the first time it is asked for), for pages
-        # that load nothing from the internet
+        # the copy kept here of each example (fetched from civitai the first time it is asked for), for pages that load
+        # nothing from the internet: a picture, for a video its first frame, and the video itself
         for i, s in enumerate(obj["samples"]):
-            still = s.get("type") != "video"
-            s["local_url"] = "/api/v1/models/%s/samples/%d" % (sha, i) if still else None
-            s["cached"] = still and os.path.isfile(self.sample_cache_path(sha, i))
+            video = s.get("type") == "video"
+            s["local_url"] = "/api/v1/models/%s/samples/%d" % (sha, i)
+            s["cached"] = os.path.isfile(self.sample_cache_path(sha, i))
+            s["video_url"] = s["local_url"] + "/video" if video else None
+            s["video_cached"] = video and os.path.isfile(self.sample_video_path(sha, i))
         obj["bundled_in"] = {"count": rows[0]["bundled"] or 0, "examples": civ.get("bundled_in") or []}
         # what the user added and changed
         user = record.get("user") if isinstance(record.get("user"), dict) else {}

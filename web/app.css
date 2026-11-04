@@ -277,6 +277,7 @@ button { cursor: pointer; }
 .dos-hero { position: relative; display: block; width: 100%; aspect-ratio: 384 / 330; padding: 0; border: 0; background: var(--well); overflow: hidden; cursor: zoom-in; }
 .dos-hero img, .dos-hero canvas { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 24%; }
 .dos-hero canvas { image-rendering: pixelated; filter: grayscale(0.78) contrast(0.92) brightness(1.04); }
+.dos-hero video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 24%; }
 .dos-hero .expand { position: absolute; right: 10px; bottom: 10px; display: grid; place-items: center; width: 34px; height: 34px;
   background: rgb(22 23 24 / 0.82); color: #fff; }
 .dos-hero .reveal { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 10px 18px; border: 0; background: var(--ink); color: #fff;
@@ -437,6 +438,11 @@ button.hero-btn:disabled { cursor: progress; opacity: 0.75; }
 .thumb-tag.line { background: var(--paper); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
 /* an example that carries its generation data: a tag in the bottom corner, as the cover and local tags are */
 .thumb-tag.params { position: absolute; right: 3px; bottom: 3px; z-index: 2; pointer-events: none; }
+/* a video among the examples: its first frame, marked in the bottom corner */
+.thumb-play { position: absolute; left: 3px; bottom: 3px; z-index: 2; display: grid; place-items: center; width: 17px; height: 17px;
+  background: var(--ink); color: #fff; pointer-events: none; }
+.thumb-play svg.i { width: 11px; height: 11px; }
+.dos-hero .video-retry { position: absolute; left: 10px; bottom: 10px; z-index: 2; }
 /* a seed: copied by a click on it; the icon follows the last line of the number */
 .cell-copy { display: inline; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .cell-copy span { overflow-wrap: anywhere; }
@@ -507,7 +513,11 @@ button.hero-btn:disabled { cursor: progress; opacity: 0.75; }
 .viewer-bar button:hover, .viewer-bar a:hover { border-color: #fff; }
 /* one cell as large as the stage, so that the picture's max-height has a height to keep within */
 .viewer-stage { position: relative; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; min-height: 0; padding: 0 18px 18px; }
-.viewer-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-stage img, .viewer-stage video { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer-note { display: grid; justify-items: center; gap: 14px; color: #dcdedf; font-size: 14px; }
+.viewer-note p { margin: 0; }
+.viewer-note .bar-btn { height: 38px; padding: 0 16px; border: 1px solid #45484b; background: transparent; color: #fff; font: 600 13px/1 var(--body); }
+.viewer-note .bar-btn:hover { border-color: #fff; }
 .viewer :focus-visible { outline-color: #fff; }
 /* moving through the examples: two large arrows beside the picture, and a strip of all of them under it (the user's
    choice of the drafts, 2026-10-03) */
@@ -520,7 +530,7 @@ button.hero-btn:disabled { cursor: progress; opacity: 0.75; }
 .viewer-strip { display: flex; gap: 8px; padding: 2px 18px 16px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #45484b transparent; }
 .viewer-strip > :first-child { margin-left: auto; }       /* centred while they fit; scrolled from the start when not */
 .viewer-strip > :last-child { margin-right: auto; }
-.viewer-strip button { flex: none; width: 44px; height: 60px; padding: 0; border: 0; background: var(--block-lit); opacity: 0.5; outline: 1px solid #45484b;
+.viewer-strip button { position: relative; flex: none; width: 44px; height: 60px; padding: 0; border: 0; background: var(--block-lit); opacity: 0.5; outline: 1px solid #45484b;
   transition: opacity var(--t-quick); }
 .viewer-strip button:hover { opacity: 0.85; }
 .viewer-strip button[aria-current="true"] { opacity: 1; outline: 2px solid #fff; outline-offset: 1px; }

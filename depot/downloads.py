@@ -216,7 +216,7 @@ class Downloads:
         record_json = json.dumps(intake_mod.version_record(model, version), ensure_ascii=False)
         family = families.from_base_model(version.get("baseModel"))
         images = [img for img in version.get("images") or [] if isinstance(img, dict) and img.get("url")]
-        cover = intake_mod.first_still(images)
+        cover = intake_mod.cover_index(images)
         present = self.library.present_by_hash()
         taken = self.db.dl_active_paths()
         replaced = []

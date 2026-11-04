@@ -6,7 +6,7 @@
 //
 // "Edit details" turns the whole dossier into one form: the name and the base model, the card, the trigger words and
 // the notes, each field marked once it differs from the suggestion, with the way back to it (the user's choice of the
-// drafts, 2026-10-03). Pictures are added from a file or dropped on the dossier, and any still example can be the cover.
+// drafts). Pictures are added from a file or dropped on the dossier, and any example can be the cover.
 import { api, upload } from './api.js';
 import { h, fill, formatBytes } from './dom.js';
 import { t, currentLang } from './i18n.js';
@@ -15,13 +15,14 @@ import { mosaicOf, loadImage } from './mosaic.js';
 import { safeFragment } from './sanitize.js';
 import { inLanguage, linesInLanguage } from './lang.js';
 import { MASK_FROM, levelName, icon, copyText, recall, remember, titleOf } from './ui.js';
-import { decode, readout, rise, fade, moving, pace } from './motion.js';
+import { decode, readout, rise, fade, moving, pace, reduced } from './motion.js';
 
 const HERO_ASPECT = 384 / 330;
 const ARRIVAL = 640;          // the arrival's length at a pace of 1: the sixth part starts at 400 and rises for 240
 const KEY_OPTIONAL = 'md.trig_optional';       // '1': the one-click copy takes the optional trigger words too
 const KEY_INFO = 'md.viewer_info';             // '0': the larger view hides the panel of the example's settings
 const KEY_OTHER = 'md.other_params';           // '1': that panel's "Other settings" is kept open
+const KEY_SOUND = 'md.video_sound';            // '1': the larger view plays videos with their sound on
 const THUMB_ASPECT = 70 / 97;
 const PICTURE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 
@@ -61,20 +62,17 @@ function shortDate(seconds) {
   return d.toLocaleDateString(currentLang() === 'zh' ? 'zh-CN' : 'en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function firstStill(items) {
-  const i = (items || []).findIndex((s) => s.type !== 'video');
-  return i < 0 ? 0 : i;
-}
-
 let retry = 0;        // goes up with every retry, so the browser asks again instead of reusing a failed answer
 
 function sampleSrc(sha, index) {
   return '/api/ui/models/' + sha + '/samples/' + index + (retry ? '?retry=' + retry : '');
 }
 
-// The examples as one list: the author's in civitai's order, then the pictures added here in the order added.
+// The examples as one list: the author's in civitai's order, then the pictures added here in the order added. A video's
+// src is its first frame.
 function galleryOf(d) {
-  const items = (d.samples || []).map((s, i) => ({ ...s, src: sampleSrc(d.sha256, i), sample: i }));
+  const items = (d.samples || []).map((s, i) => ({ ...s, src: sampleSrc(d.sha256, i), sample: i,
+    video: s.video_url ? s.video_url + (retry ? '?retry=' + retry : '') : null }));
   for (const p of d.images || []) {
     items.push({ type: 'image', url: p.url, src: p.url, width: p.width, height: p.height, level: null, params: p.params,
       image: p.id, local: true });
@@ -84,6 +82,22 @@ function galleryOf(d) {
 
 function thumbFailed() {
   return h('span', { class: 'note failed', title: t('dos.sample_failed_short') }, icon('i-x'));
+}
+
+// A video example, looping and silent unless asked otherwise, as on civitai's pages.
+function videoOf(s, attrs) {
+  return h('video', { src: s.video, loop: true, muted: true, playsInline: true, ...attrs });
+}
+
+// A video taken off the page stops, and its connection with it: a fetch nobody watches then ends (depot/videos.py).
+function stopVideo(video) {
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
+function playMark() {
+  return h('span', { class: 'thumb-play', 'aria-hidden': 'true' }, icon('i-play'));
 }
 
 function fileName(path) {
@@ -129,8 +143,8 @@ const NOT_OTHER = new Set(['prompt', 'negativePrompt', 'Size', 'width', 'height'
 const RESOURCE_TYPE = { model: 'Checkpoint', checkpoint: 'Checkpoint', lora: 'LoRA', locon: 'LoRA', lycoris: 'LyCORIS',
   embed: 'Embedding', embedding: 'Embedding', textualinversion: 'Embedding', vae: 'VAE' };
 
-// Whether an example (a video aside) carries the settings it was made with.
-const hasParams = (s) => Boolean(s && s.type !== 'video' && s.params && typeof s.params === 'object' && Object.keys(s.params).length);
+// Whether an example carries the settings it was made with.
+const hasParams = (s) => Boolean(s && s.params && typeof s.params === 'object' && Object.keys(s.params).length);
 
 // The models and LoRAs an example names, with their weights: WebUI's list, or the one civitai's generator writes.
 // Each carries the key it can be matched to a file here by (depot/library.py resource_keys): WebUI's short hash, or
@@ -287,6 +301,28 @@ export class Dossier {
       if (e.key === 'ArrowLeft') { e.preventDefault(); this.step(-1, true); }
       if (e.key === 'ArrowRight') { e.preventDefault(); this.step(1, true); }
     });
+    // One video plays at a time: the larger view's while it is open, else the hero's; none while the window is hidden.
+    this.viewer.addEventListener('close', () => {
+      for (const video of this.viewer.querySelectorAll('video')) video.remove();
+      this.playHero();
+    });
+    document.addEventListener('visibilitychange', () => {
+      const shown = this.viewer.open ? this.viewer.querySelector('video') : root.querySelector('.dos-hero video');
+      if (!shown) return;
+      if (document.hidden) shown.pause();
+      else if (!reduced()) shown.play().catch(() => {});
+    });
+    const gone = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node.nodeType !== 1) continue;
+          const videos = node.matches('video') ? [node] : node.querySelectorAll('video');
+          for (const video of videos) if (!video.isConnected) stopVideo(video);
+        }
+      }
+    });
+    gone.observe(root, { childList: true, subtree: true });
+    gone.observe(this.viewer, { childList: true, subtree: true });
     // Pictures dropped on the dossier are added to the model's examples.
     guardDrops();
     this.dragDepth = 0;
@@ -334,7 +370,7 @@ export class Dossier {
     if (token !== this.token) return;
     if (!this.detail || this.detail.sha256 !== sha) this.endEdit();      // another model: an unsaved edit is dropped
     this.detail = detail;
-    this.index = firstStill(this.items());
+    this.index = 0;
     this.draw(false);
     this.root.scrollTop = 0;
     // The first time a model is opened, its civitai page is read: one request, as a visit to the page would be.
@@ -473,6 +509,7 @@ export class Dossier {
     if (!keepScroll) this.enter(body);
     else if (this.decodeNext) decode(body.querySelector('.dos-hero img'));
     this.decodeNext = false;
+    this.playHero();      // a redraw keeps the hero by moving it, and the browser pauses a video taken off the page
   }
 
   sourceText() {
@@ -537,10 +574,7 @@ export class Dossier {
     }
     const s = shown;
     const tools = this.heroTools(s);
-    if (s.type === 'video') {
-      hero.append(h('div', { class: 'note' }, icon('i-play'), t('dos.sample_video'),
-        d.civitai ? h('a', { href: d.civitai.url, target: '_blank', rel: 'noopener noreferrer' }, t('dos.open_civitai')) : null));
-    } else if (this.masked(this.index)) {
+    if (this.masked(this.index)) {
       const reveal = h('button', { class: 'reveal', type: 'button', onclick: () => {
         this.revealed.add(d.sha256 + '/' + this.index);
         this.decodeNext = true;
@@ -553,9 +587,30 @@ export class Dossier {
       const img = h('img', { src: s.src, alt: '', decoding: 'async' });
       const expand = h('button', { class: 'expand', type: 'button', title: t('dos.view_full'), 'aria-label': t('dos.view_full'), onclick: () => this.openViewer() },
         icon('i-expand'));
-      img.addEventListener('error', () => { expand.remove(); tools.querySelectorAll('.cover-btn').forEach((b) => b.remove()); img.replaceWith(this.failedNote(s)); });
+      const failed = () => { expand.remove(); tools.querySelectorAll('.cover-btn').forEach((b) => b.remove()); img.replaceWith(this.failedNote(s)); };
+      // A video lies over its first frame, which shows until the video has a picture of its own and stays when it cannot
+      // be had; the decode's canvases come after the picture, so over both.
+      let video = null;
+      let noFrame = false;
+      if (s.video && !reduced()) {
+        const open = this.viewer.open;
+        video = videoOf(s, { autoplay: !open, preload: open ? 'none' : 'auto' });
+        video.addEventListener('error', () => {
+          if (!video.isConnected) return;
+          video.remove();
+          if (noFrame) { failed(); return; }
+          hero.append(h('button', { class: 'hero-btn video-retry', type: 'button', title: t('dos.video_failed'),
+            onclick: () => { retry += 1; this.draw(true); } }, icon('i-play'), t('dos.video_retry')));
+        });
+        hero.append(video);
+      }
+      img.addEventListener('error', () => {
+        if (!video || !video.isConnected) { failed(); return; }
+        noFrame = true;
+        img.style.visibility = 'hidden';
+      });
       hero.append(img, expand);
-      hero.addEventListener('click', (e) => { if (e.target === img) this.openViewer(); });
+      hero.addEventListener('click', (e) => { if (e.target === img || (video && e.target === video)) this.openViewer(); });
     }
     hero.append(tools);
     if (items.length > 1) hero.append(h('span', { class: 'dos-count' }, (this.index + 1) + ' / ' + items.length));
@@ -566,7 +621,7 @@ export class Dossier {
   // button that takes it out again.
   heroTools(s) {
     const tools = h('div', { class: 'hero-tools' });
-    if (s.type !== 'video' && !this.masked(this.index)) tools.append(this.coverControl(s, 'hero-btn'));
+    if (!this.masked(this.index)) tools.append(this.coverControl(s, 'hero-btn'));
     if (s.local) {
       tools.append(h('button', { class: 'hero-btn icon-only', type: 'button', title: t('dos.image_remove'), 'aria-label': t('dos.image_remove'),
         onclick: () => this.removeImage(s) }, icon('i-trash')));
@@ -613,15 +668,14 @@ export class Dossier {
       const button = h('button', { class: 'dos-thumb', type: 'button', 'aria-current': String(i === this.index),
         'aria-label': t('dos.sample_n', { n: i + 1, total: items.length }),
         onclick: () => { if (i === this.index) return; this.index = i; this.decodeNext = true; this.draw(true); } });
-      if (s.type === 'video') {
-        button.append(h('span', { class: 'note' }, icon('i-play')));
-      } else if (this.masked(i)) {
+      if (this.masked(i)) {
         this.putMosaic(button, s.src, THUMB_ASPECT, 6, null, true);
       } else {
         const img = h('img', { src: s.src, alt: '', loading: 'lazy', decoding: 'async' });
         img.addEventListener('error', () => img.replaceWith(thumbFailed()));
         button.append(img);
       }
+      if (s.type === 'video') button.append(playMark());
       const tags = [this.isCover(s) ? h('span', { class: 'thumb-tag' }, t('dos.cover_is')) : null,
         s.local ? h('span', { class: 'thumb-tag line' }, t('dos.local')) : null].filter(Boolean);
       if (tags.length) button.append(h('span', { class: 'thumb-tags' }, tags));
@@ -681,8 +735,27 @@ export class Dossier {
   }
 
   openViewer() {
+    const hero = this.root.querySelector('.dos-hero video');
+    if (hero) hero.pause();
     this.fillViewer();
     if (!this.viewer.open) this.viewer.showModal();
+  }
+
+  playHero() {
+    const hero = this.root.querySelector('.dos-hero video');
+    if (hero && !reduced() && !document.hidden && !this.viewer.open) hero.play().catch(() => {});
+  }
+
+  // A video in the larger view: with the player's controls, its first frame until it has a picture of its own.
+  viewerVideo(s) {
+    const video = videoOf(s, { controls: true, autoplay: !reduced(), poster: s.src, muted: recall(KEY_SOUND, '0') !== '1' });
+    video.addEventListener('volumechange', () => remember(KEY_SOUND, video.muted ? '0' : '1'));
+    video.addEventListener('error', () => {
+      if (!video.isConnected) return;
+      video.replaceWith(h('div', { class: 'viewer-note' }, h('p', null, t('dos.video_failed')),
+        h('button', { class: 'bar-btn', type: 'button', onclick: () => { retry += 1; this.draw(true); this.fillViewer(); } }, t('dos.retry'))));
+    });
+    return video;
   }
 
   // The larger view: the picture between two large arrows, a strip of all the examples under it, and in the bar the
@@ -692,8 +765,9 @@ export class Dossier {
     const items = this.items();
     const s = items[this.index];
     let stage;
-    if (!s || s.type === 'video') stage = h('p', null, t('dos.sample_video'));
+    if (!s) stage = h('p', null, t('dos.samples_none'));
     else if (this.masked(this.index)) stage = h('p', null, levelName(s.level));
+    else if (s.video) stage = this.viewerVideo(s);
     else stage = h('img', { src: s.src, alt: d.title });
     const many = items.length > 1;
     const oldStrip = this.viewer.querySelector('.viewer-strip');
@@ -709,7 +783,7 @@ export class Dossier {
       h('div', { class: 'viewer-bar' },
         h('span', { class: 'title' }, d.title + (many ? '  ·  ' + t('dos.sample_n', { n: this.index + 1, total: items.length }) : '')),
         infoBtn,
-        s && s.type !== 'video' && !this.masked(this.index) ? this.coverControl(s, 'bar-btn') : null,
+        s && !this.masked(this.index) ? this.coverControl(s, 'bar-btn') : null,
         d.civitai ? h('a', { href: d.civitai.url, target: '_blank', rel: 'noopener noreferrer', title: t('dos.open_civitai'), 'aria-label': t('dos.open_civitai') }, icon('i-external')) : null,
         h('button', { type: 'button', title: t('dos.close'), 'aria-label': t('dos.close'), onclick: () => this.viewer.close() }, icon('i-x'))),
       h('div', { class: 'viewer-main' + (showInfo ? ' with-info' : '') },
@@ -736,18 +810,17 @@ export class Dossier {
   viewerStrip(items) {
     return h('div', { class: 'viewer-strip', role: 'group', 'aria-label': t('dos.samples') }, items.map((s, i) => {
       let face;
-      if (s.type === 'video') face = h('span', { class: 'tile' }, icon('i-play'));
-      else if (this.masked(i)) face = h('span', { class: 'tile' }, levelName(s.level));
+      if (this.masked(i)) face = h('span', { class: 'tile' }, levelName(s.level));
       else face = h('img', { src: s.src, alt: '', loading: 'lazy', decoding: 'async' });
       return h('button', { type: 'button', 'aria-current': String(i === this.index), 'aria-label': t('dos.sample_n', { n: i + 1, total: items.length }),
-        onclick: () => this.goTo(i, true) }, face);
+        onclick: () => this.goTo(i, true) }, face, s.type === 'video' ? playMark() : null);
     }));
   }
 
   // Beside the larger picture, what that example was made with: the prompts with their copy buttons, the settings, the
   // models and LoRAs it names, hires fix, and the rest as written; one button copies it all in WebUI's format.
   viewerInfo(s) {
-    const p = s && s.type !== 'video' && s.params && typeof s.params === 'object' ? s.params : null;
+    const p = s && s.params && typeof s.params === 'object' ? s.params : null;
     const key = s ? String(s.src || s.url || s.id || this.index) : '';
     const panel = h('aside', { class: 'viewer-info', 'data-key': key, 'aria-label': t('dos.params') });
     const cell = (label, value) => (value === null || value === undefined || value === ''

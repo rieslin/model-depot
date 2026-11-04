@@ -84,6 +84,9 @@ export function decode(img, { cells = [30, 15, 7, 3], step = 90 } = {}) {
   let tries = 0;
   const begin = () => {
     if (over) return;
+    // A first frame that arrives after its video has begun: the video lies under the canvases, and is not interrupted.
+    const video = img.previousElementSibling;
+    if (video instanceof HTMLVideoElement && video.currentTime > 0) { stop(); return; }
     if (reduced()) { stop(); quietly(img); return; }
     if (!img.isConnected || !img.parentElement) { stop(); return; }
     if (!img.offsetWidth || !img.offsetHeight) {

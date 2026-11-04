@@ -171,11 +171,14 @@ def is_video(image):
 
 
 def pick_cover_image(images):
-    """The first still image of a version: what its civitai page shows as the cover."""
+    """The first still image of a version, or the first video (its first frame) of a version that has only videos."""
+    video = None
     for image in images if isinstance(images, list) else []:
-        if isinstance(image, dict) and image.get("url") and not is_video(image):
-            return image
-    return None
+        if isinstance(image, dict) and image.get("url"):
+            if not is_video(image):
+                return image
+            video = video or image
+    return video
 
 
 def sized_image_url(url, width):
@@ -184,6 +187,34 @@ def sized_image_url(url, width):
     if _TRANSFORM_RE.search(url):
         return _TRANSFORM_RE.sub("/width=%d/" % width, url, count=1)
     return url
+
+
+def _transformed(url, transform, extension):
+    """A video's address on civitai's image host with another transform segment and file extension."""
+    head = str(url or "").split("?")[0]
+    prefix, _, name = head.rpartition("/")
+    if "=" in prefix.rpartition("/")[2]:
+        prefix = prefix.rpartition("/")[0]
+    return "%s/%s/%s.%s" % (prefix, transform, name.rsplit(".", 1)[0], extension)
+
+
+def picture_urls(image, width):
+    """The addresses of an example as a picture at about `width`, to try in turn. A video gives its first frame: civitai's
+    image host answers anim=false,transcode=true with a JPEG of full size, whatever the width, and without transcode=true
+    with the whole video. An address it has not served lately can also give the whole video, for a minute or more, while
+    another gives the frame: so 450, the width civitai's own pages ask for, and another extension."""
+    if not is_video(image):
+        return [sized_image_url(image.get("url"), width)]
+    url = image.get("url")
+    return [_transformed(url, "anim=false,transcode=true,width=%d" % width, "jpeg"),
+            _transformed(url, "anim=false,transcode=true,width=450", "jpeg"),
+            _transformed(url, "anim=false,transcode=true,width=%d" % width, "webp")]
+
+
+def video_url(image, width):
+    """A video example at about `width`, as H.264 in MP4, which every browser engine plays. The originals reach 146 MB;
+    the host gave 40 MB for that one at 768."""
+    return _transformed(image.get("url"), "transcode=true,width=%d" % width, "mp4")
 
 
 def samples(version):

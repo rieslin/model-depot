@@ -191,6 +191,7 @@ class Server:
         r.add_get("/api/v1/models/{sha256}", self.api_model)
         r.add_get("/api/v1/models/{sha256}/cover", self.api_cover)
         r.add_get("/api/v1/models/{sha256}/samples/{index}", self.ui_sample)       # the same copy the dossier shows
+        r.add_get("/api/v1/models/{sha256}/samples/{index}/video", self.ui_sample_video)
         r.add_get("/api/v1/models/{sha256}/card", self.api_card)
         r.add_put("/api/v1/models/{sha256}/card", self.api_put_card)
         r.add_post("/api/v1/scan", self.api_scan)
@@ -721,6 +722,37 @@ class Server:
             log.info("example image %s/%d could not be fetched: %s", sha[:12], index, e)
             raise ApiError(502, "fetch_failed", "err.sample_fetch_failed") from e
         return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400", "Content-Type": "image/jpeg"})
+
+    async def ui_sample_video(self, request):
+        """One of the author's video examples: the copy kept here (with byte ranges), or, the first time, the copy on its
+        way from civitai, played while it arrives."""
+        sha = request.match_info["sha256"].lower()
+        try:
+            index = int(request.match_info["index"])
+            path, job = await self.library.sample_video(sha, index, force=bool(request.query.get("retry")))
+        except (LookupError, ValueError) as e:
+            raise ApiError(404, "not_found", "err.sample_not_found") from e
+        except (CivitaiError, OSError) as e:
+            log.info("example video %s/%s could not be fetched: %s", sha[:12], request.match_info["index"], e)
+            raise ApiError(502, "fetch_failed", "err.sample_fetch_failed") from e
+        headers = {"Cache-Control": "private, max-age=86400", "Content-Type": "video/mp4"}
+        if path is not None:
+            return web.FileResponse(path, headers=headers)
+        if job.size is not None:
+            headers["Content-Length"] = str(job.size)
+        resp = web.StreamResponse(headers=headers)
+        try:
+            await resp.prepare(request)
+            async for piece in job.follow():
+                await resp.write(piece)
+            await resp.write_eof()
+        except (CivitaiError, OSError) as e:        # the fetch broke off, or the viewer left
+            log.info("example video %s/%d stopped: %s", sha[:12], index, e)
+            if request.transport is not None:
+                request.transport.abort()
+        finally:
+            job.leave()
+        return resp
 
     async def ui_read_page(self, request):
         """Read the model's civitai page (the author's notes for the whole model) and draft its card again. Without
