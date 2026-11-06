@@ -7,7 +7,9 @@ part into a 7-Zip archive, and put the setup beside them.
 
 The paths of this computer (the ComfyUI to copy, llama.cpp, the embeddable Python, 7-Zip, the C# compiler, where to
 stage and where to put the result) are read from installer\\build.local.json, which is not in the repository;
-build.example.json shows its shape.
+build.example.json shows its shape. What the package holds and the product's own values (folder names, the oldest
+driver, the custom nodes that ship) are in installer\\build.json; build.local.json may name other bundled_models and
+comfyui_pip.
 
 The staging folder, as installed:
     app\\                Model Depot itself (the tracked files it runs from)
@@ -26,9 +28,13 @@ The package (the output folder):
     setup\\7za.exe             7-Zip's standalone program, which the setup unpacks with
     setup\\ui\\                the setup's page
     Model Inbox\\              empty: model files put here are sorted into the library when Model Depot first runs
+                               (its name is build.json's product.inbox_folder)
 """
 import argparse
+import fnmatch
+import functools
 import json
+import math
 import os
 import re
 import shutil
@@ -44,66 +50,50 @@ PARTS = ("app", "python", "llm", "comfyui", "workflows", "setup")
 ARCHIVES = (("app", "app", "app"), ("python", "python", "python"), ("llm", "llm", "llm"), ("comfyui", "ComfyUI", "comfyui"),
             ("workflows", "workflows", "workflows"), ("library", "library", "library"))
 
-# What of the repository the installed program needs.
-APP_PREFIXES = ("depot/", "web/", "scripts/", "desktop/app/")
-APP_FILES = ("run.py", "requirements.txt", "README.md", "README.zh-CN.md", "LICENSE", "THIRD-PARTY-NOTICES.md",
-             "desktop/loader.html", "Start.cmd", "Stop.cmd", "启动.cmd", "停止.cmd")
-# The folder beside the setup (and in the installation) for model files to sort; Engine.cs's InboxName.
-INBOX = "Model Inbox"
-# The license files that go beside the setup in the package.
-PACKAGE_LICENSES = ("LICENSE", "THIRD-PARTY-NOTICES.md")
-
-MODEL_EXTENSIONS = {".ckpt", ".pt", ".pt2", ".bin", ".pth", ".safetensors", ".pkl", ".sft", ".gguf", ".onnx"}
-
-# The custom nodes that ship, each for a reason (decided 2026-10-23; the build copied every folder of the developer's
-# ComfyUI before, Image Atelier's own plugin and long-unused ones included). Everything else is left out; a user adds
-# what they want through ComfyUI's manager. A folder named here that is missing stops the build.
-CUSTOM_NODES = (
-    "ComfyUI-GGUF",             # GGUF model files (diffusion models, text encoders): ComfyUI's own loaders cannot read them
-    "ComfyUI-PixAI-Tagger",     # the optional "anime to real" workflow; Image Atelier's tagging
-    "ComfyUI-Impact-Pack",      # Image Atelier's detail passes (FaceDetailer)
-    "ComfyUI-Impact-Subpack",   # the detectors those passes use (UltralyticsDetectorProvider)
-    "comfyui_controlnet_aux",   # Image Atelier's pose, depth and line preprocessing
-)
 # The files of the model library's type folders that ship: ComfyUI's own "put ... here" notes (and the configs folder,
 # below). Caches and indexes other programs leave there (.validation_cache.json, model_metadata.ldb) stay home.
 PLACEHOLDER = re.compile(r"^put .* here", re.I)
-# The Visual C++ runtime that PyTorch (c10.dll, torch_cpu.dll) and llama.cpp link against. A computer without the
-# Visual C++ Redistributable cannot start either; these files go beside the programs that load them (Microsoft lets
-# them be shipped with an application). Taken from this computer's System32.
-VC_RUNTIME = ("msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
-              "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "concrt140.dll", "vcomp140.dll")
+# the optional workflows (installer\workflows\optional) go into this folder of ComfyUI's workflow list
+OPTIONAL_FOLDER = "可选工作流"
+
+
+@functools.lru_cache(maxsize=None)
+def build_config():
+    """installer\\build.json: what the package holds and the product's own values."""
+    with open(os.path.join(HERE, "build.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def product():
+    return build_config()["product"]
+
+
+def custom_nodes():
+    """The custom nodes that ship, by folder name. A folder named here that is missing stops the build."""
+    return tuple(product()["custom_nodes"])
+
+
+def model_extensions():
+    """What counts as a model file: ComfyUI's model extensions and the other model files (depot\\catalog\\comfyui.json)."""
+    with open(os.path.join(REPO, "depot", "catalog", "comfyui.json"), encoding="utf-8") as f:
+        catalog = json.load(f)
+    return sorted(set(catalog["model_extensions"]) | set(catalog["extra_extensions"]))
 
 
 def copy_vc_runtime(folder):
     """The Visual C++ runtime files into a folder, where a program or library loaded from it finds them first."""
+    runtime = build_config()["vc_runtime"]
     system = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")
     copied = 0
-    for name in VC_RUNTIME:
+    for name in runtime["files"]:
         src = os.path.join(system, name)
         if os.path.isfile(src) and not os.path.isfile(os.path.join(folder, name)):
             shutil.copy2(src, os.path.join(folder, name))
             copied += 1
-    missing = [n for n in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll") if not os.path.isfile(os.path.join(folder, n))]
+    missing = [n for n in runtime["required"] if not os.path.isfile(os.path.join(folder, n))]
     if missing:
         sys.exit("vc runtime: %s missing in %s and in System32" % (", ".join(missing), folder))
     return copied
-
-# The official ComfyUI templates installed as the default workflows, with the name each gets in ComfyUI's workflow
-# list.
-OFFICIAL_WORKFLOWS = (
-    ("image_z_image_turbo.json", "Z-Image Turbo - Text to Image.json"),
-    ("image_z_image.json", "Z-Image Base - Text to Image.json"),
-    # Krea 2 Turbo in its INT8 form only (the user, 2026-10-24: the FP8 form is the same model; keep one): the one the
-    # optional workflows and Image Atelier use. Earlier packages shipped both; an update removes the other if unchanged.
-    ("image_krea2_turbo_t2i_int8.json", "Krea 2 Turbo - Text to Image.json"),
-    ("image_qwen_image_2_1_t2i.json", "Qwen Image 2.1 - Text to Image.json"),
-    ("image_qwen_image_2_1_image_edit.json", "Qwen Image 2.1 - Image Edit.json"),
-    ("image_anima_base_v1.json", "Anima Base v1 - Text to Image.json"),
-)
-TEMPLATES = r"python_embeded\Lib\site-packages\comfyui_workflow_templates_json\templates"
-# the optional workflows (installer\workflows\optional) go into this folder of ComfyUI's workflow list
-OPTIONAL_FOLDER = "可选工作流"
 
 
 def load_settings():
@@ -115,7 +105,8 @@ def load_settings():
     for key in ("stage", "output", "comfyui", "llama_cpp", "python_embed_zip", "site_packages", "sevenzip", "csc"):
         if not s.get(key) or not os.path.isabs(s[key]):
             sys.exit("build.local.json: %s must be an absolute path" % key)
-    s.setdefault("bundled_models", [])
+    s.setdefault("bundled_models", list(product()["bundled_models"]))
+    s.setdefault("comfyui_pip", list(build_config()["comfyui_pip"]))
     s.setdefault("optional_workflows", os.path.join(HERE, "workflows", "optional"))
     return s
 
@@ -156,9 +147,11 @@ def stage_app(s):
     fresh(dst)
     listed = subprocess.run(["git", "-C", REPO, "ls-files", "-z"], capture_output=True, check=True).stdout
     names = [n.decode("utf-8") for n in listed.split(b"\0") if n]
+    app = build_config()["app"]
+    prefixes, files = tuple(app["prefixes"]), set(app["files"])
     count = 0
     for name in names:
-        if not (name.startswith(APP_PREFIXES) or name in APP_FILES):
+        if not (name.startswith(prefixes) or name in files):
             continue
         target = os.path.join(dst, *name.split("/"))
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -179,9 +172,7 @@ def stage_python(s):
     with open(os.path.join(dst, pth[0]), "w", encoding="ascii") as f:
         f.write("%s.zip\n.\nLib\\site-packages\nimport site\n" % pth[0][:-5])
     site = os.path.join(dst, "Lib", "site-packages")
-    shutil.copytree(s["site_packages"], site,
-                    ignore=shutil.ignore_patterns("__pycache__", "pip", "pip-*", "_distutils_hack",
-                                                  "distutils-precedence.pth", "setuptools*", "pkg_resources"))
+    shutil.copytree(s["site_packages"], site, ignore=shutil.ignore_patterns(*build_config()["python_leave_out"]))
     check = subprocess.run([os.path.join(dst, "python.exe"), os.path.join(REPO, "run.py"), "--check"],
                            capture_output=True, text=True)
     if check.returncode != 0:
@@ -212,43 +203,51 @@ def stage_llm(s):
     say("llm: %d files, %s" % (count, (version.stdout + version.stderr).strip().splitlines()[0]))
 
 
+def comfy_leave_out(src, node_folders):
+    """(folders, files) robocopy leaves out of a copy of the portable ComfyUI at src whose custom_nodes folder holds
+    node_folders: everything but what ships. That is the user's own files: models (the library part brings what ships),
+    outputs, inputs, the temporary folder, logs, caches, disabled custom nodes, the custom nodes that do not ship, and
+    the settings files that hold this computer's paths (the custom nodes write them again on their first start; the
+    setup writes extra_model_paths.yaml)."""
+    rules = build_config()["comfyui"]
+    app = os.path.join(src, "ComfyUI")
+    nodes = os.path.join(app, "custom_nodes")
+    folders = [os.path.join(app, d) for d in rules["leave_out_app_folders"]]
+    folders += [os.path.join(src, d) for d in rules["leave_out_folders"]] + list(rules["leave_out_names"])
+    folders += [os.path.join(nodes, d) for d in node_folders if d not in custom_nodes()]
+    files = list(rules["leave_out_files"]) + [os.path.join(app, f) for f in rules["leave_out_app_files"]]
+    return folders, files
+
+
 def stage_comfyui(s):
     src = s["comfyui"]
     dst = os.path.join(s["stage"], "ComfyUI")
     app = os.path.join(src, "ComfyUI")
-    # Everything but the user's own files: models (the library part below brings what ships), outputs, inputs,
-    # the temporary folder, logs, caches, disabled custom nodes, and the settings files that hold this computer's
-    # paths (the custom nodes write them again on their first start; the setup writes extra_model_paths.yaml).
-    exclude_dirs = [os.path.join(app, d) for d in ("models", "input", "output", "temp", "user")]
-    exclude_dirs += [os.path.join(app, "custom_nodes", ".disabled"), os.path.join(src, ".app_activity"),
-                     "before-update-*", "__pycache__"]
+    rules = build_config()["comfyui"]
     nodes = os.path.join(app, "custom_nodes")
-    missing = [n for n in CUSTOM_NODES if not os.path.isdir(os.path.join(nodes, n))]
+    missing = [n for n in custom_nodes() if not os.path.isdir(os.path.join(nodes, n))]
     if missing:
         sys.exit("comfyui: custom nodes %s are not in %s" % (", ".join(missing), nodes))
-    exclude_dirs += [os.path.join(nodes, d) for d in os.listdir(nodes)
-                     if os.path.isdir(os.path.join(nodes, d)) and d not in CUSTOM_NODES]
-    exclude_files = ["*.pyc", "*.log", os.path.join(app, "extra_model_paths.yaml"),
-                     os.path.join(app, "custom_nodes", "was-node-suite-comfyui", "was_suite_config.json"),
-                     os.path.join(app, "custom_nodes", "ComfyUI-Impact-Pack", "impact-pack.ini")]
+    exclude_dirs, exclude_files = comfy_leave_out(src, [d for d in os.listdir(nodes) if os.path.isdir(os.path.join(nodes, d))])
     robocopy(src, dst, exclude_dirs, exclude_files)
     # Robocopy's /MIR never removes what /XD excludes: a custom node or a folder left in the staged copy by an
-    # earlier build would ship again. Those go here, and the four working folders start empty.
+    # earlier build would ship again. Those go here, and the working folders start empty.
     for name in os.listdir(os.path.join(dst, "ComfyUI", "custom_nodes")):
         path = os.path.join(dst, "ComfyUI", "custom_nodes", name)
-        if os.path.isdir(path) and name not in CUSTOM_NODES:
+        if os.path.isdir(path) and name not in custom_nodes():
             remove(path)
+    top = [f for f in rules["leave_out_folders"] if not re.search(r"[\\/]", f)]
     for name in os.listdir(dst):
-        if name.startswith("before-update-") or name == ".app_activity":
+        if name in top or any(fnmatch.fnmatch(name, p) for p in rules["leave_out_names"]):
             remove(os.path.join(dst, name))
-    for name in ("input", "output", "temp", "models"):
+    for name in rules["empty_folders"]:
         path = os.path.join(dst, "ComfyUI", name)
         if os.path.isdir(path) and os.listdir(path):
             remove(path)        # (an empty one stays, so the part does not count as changed)
         os.makedirs(path, exist_ok=True)
 
-    # Packages replaced in the copy only ("comfyui_pip" in the settings): numba 0.65 does not accept NumPy 2.5, which
-    # keeps was-node-suite from loading; numba 0.68 with llvmlite 0.50 does.
+    # Packages replaced in the copy only ("comfyui_pip" in build.json, or the settings): numba 0.65 does not accept
+    # NumPy 2.5, which kept was-node-suite from loading; numba 0.68 with llvmlite 0.50 does.
     upgrades = s.get("comfyui_pip") or []
     if upgrades:
         cmd = [os.path.join(dst, "python_embeded", "python.exe"), "-m", "pip", "install", "--no-deps", "--no-compile",
@@ -274,8 +273,7 @@ def stage_comfyui(s):
     fresh(user_dst)
     # ComfyUI's own settings stay home (the developer's: the tutorial done, the panels as arranged); the setup writes
     # the page's language. The manager is told to follow ComfyUI's stable releases, not the nightly ones.
-    keep = (r"default\ComfyUI-Impact-Subpack\model-whitelist.txt", r"__manager\channels.list")
-    for rel in keep:
+    for rel in rules["user_files"]:
         if os.path.isfile(os.path.join(user_src, rel)):
             os.makedirs(os.path.dirname(os.path.join(user_dst, rel)), exist_ok=True)
             shutil.copy2(os.path.join(user_src, rel), os.path.join(user_dst, rel))
@@ -283,7 +281,7 @@ def stage_comfyui(s):
     if os.path.isfile(manager_ini):
         with open(manager_ini, encoding="utf-8") as f:
             text = f.read()
-        text = re.sub(r"(?m)^update_policy\s*=.*$", "update_policy = stable-comfyui", text)
+        text = re.sub(r"(?m)^update_policy\s*=.*$", lambda _m: "update_policy = " + rules["manager_update_policy"], text)
         os.makedirs(os.path.join(user_dst, "__manager"), exist_ok=True)
         with open(os.path.join(user_dst, "__manager", "config.ini"), "w", encoding="utf-8") as f:
             f.write(text)
@@ -300,7 +298,7 @@ def stage_comfyui(s):
                 shutil.copy2(path, os.path.join(lib_dst, t, name))       # ComfyUI's "put ... here" notes
         if t == "configs":
             shutil.copytree(os.path.join(lib_src, t), os.path.join(lib_dst, t), dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns(*["*" + e for e in MODEL_EXTENSIONS]))
+                            ignore=shutil.ignore_patterns(*["*" + e for e in model_extensions()]))
     for rel in s["bundled_models"]:
         source = os.path.join(lib_src, *rel.split("/"))
         if not os.path.isdir(source):
@@ -312,8 +310,9 @@ def stage_comfyui(s):
 def stage_workflows(s):
     dst = os.path.join(s["stage"], "workflows")
     fresh(dst)
-    templates = os.path.join(s["comfyui"], TEMPLATES)
-    for src_name, name in OFFICIAL_WORKFLOWS:
+    templates = os.path.join(s["comfyui"], build_config()["templates"])
+    official = build_config()["official_workflows"]
+    for src_name, name in official:
         src = os.path.join(templates, src_name)
         if not os.path.isfile(src):
             sys.exit("workflows: the template %s is not in this ComfyUI" % src_name)
@@ -326,7 +325,7 @@ def stage_workflows(s):
             shutil.copy2(os.path.join(extra_src, name), os.path.join(dst, OPTIONAL_FOLDER, name))
     renamed = sum(place_by_norm(os.path.join(here, n)) for here, _d, names in os.walk(dst) for n in names if n.endswith(".json"))
     say("workflows: %d official, %d optional; %d file references point into the norm's sub-folders"
-        % (len(OFFICIAL_WORKFLOWS), len(extra), renamed))
+        % (len(official), len(extra), renamed))
 
 
 def place_by_norm(path):
@@ -403,6 +402,31 @@ def earlier_workflows():
         return json.load(f)["files"]
 
 
+def manifest_product(s):
+    """The product's values as the setup (Engine.cs) and its page take them from the manifest."""
+    values = dict(product())
+    values["bundled_models"] = list(s["bundled_models"])
+    values["model_extensions"] = model_extensions()
+    return values
+
+
+def notes_values(installed_bytes):
+    """What fills the placeholders of the notes beside the setup (installer\\package\\*.txt)."""
+    p = product()
+    return {"inbox": p["inbox_folder"], "min_driver": p["min_driver"], "min_gpu": p["min_gpu"],
+            # in the unit Windows shows free space in, rounded up
+            "install_gb": math.ceil(installed_bytes / 1024 ** 3)}
+
+
+def fill(text, values):
+    for key, value in values.items():
+        text = text.replace("{%s}" % key, str(value))
+    left = sorted(set(re.findall(r"\{[a-z_]+\}", text)))
+    if left:
+        sys.exit("package notes: %s not filled" % ", ".join(left))
+    return text
+
+
 def package(s):
     out = s["output"]
     setup_dir = os.path.join(out, "setup")
@@ -444,6 +468,8 @@ def package(s):
             "official": sum(1 for n in os.listdir(workflows) if n.endswith(".json")),
             "optional": sum(1 for n in os.listdir(optional) if n.endswith(".json")) if os.path.isdir(optional) else 0,
         },
+        # folder names, the oldest driver and cards, the launchers, what a model file is, the custom nodes' words
+        "product": manifest_product(s),
     }
     with open(os.path.join(setup_dir, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=1)
@@ -456,18 +482,26 @@ def package(s):
     shutil.copytree(os.path.join(s["stage"], "ui"), os.path.join(setup_dir, "ui"))
     shutil.copy2(os.path.join(HERE, "setup", "bin", "ModelDepotSetup.exe"), os.path.join(out, "Model Depot Setup.exe"))
     # the folder for model files to sort; a "models" left by an older build is taken away when empty
-    os.makedirs(os.path.join(out, INBOX), exist_ok=True)
+    os.makedirs(os.path.join(out, product()["inbox_folder"]), exist_ok=True)
     old = os.path.join(out, "models")
     if os.path.isdir(old) and not os.listdir(old):
         os.rmdir(old)
+    installed = sum(p["bytes"] for p in parts)
     for name in os.listdir(os.path.join(HERE, "package")):
-        shutil.copy2(os.path.join(HERE, "package", name), os.path.join(out, name))
-    for name in PACKAGE_LICENSES:
+        src, dst = os.path.join(HERE, "package", name), os.path.join(out, name)
+        if name.lower().endswith(".txt"):
+            with open(src, encoding="utf-8", newline="") as f:
+                text = fill(f.read(), notes_values(installed))
+            with open(dst, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+        else:
+            shutil.copy2(src, dst)
+    for name in build_config()["package_licenses"]:
         shutil.copy2(os.path.join(REPO, name), os.path.join(out, name))
     total = 0
     for current, _dirs, names in os.walk(out):
         total += sum(os.path.getsize(os.path.join(current, n)) for n in names)
-    say("done: %s (%.2f GB; %.2f GB once installed)" % (out, total / 1e9, sum(p["bytes"] for p in parts) / 1e9))
+    say("done: %s (%.2f GB; %.2f GB once installed)" % (out, total / 1e9, installed / 1e9))
 
 
 def main():

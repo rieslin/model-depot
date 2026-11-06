@@ -11,22 +11,13 @@
      bar       true when the direction shows the app's top bar from the start (nothing travels at the hand-over)
    The window calls LOADER.ready() once the program answers, waits LOADER.EXIT seconds (the promise ready() returns
    ends with the last frame; the page also posts {cmd: "handed"} then), and shows the program's page in its place.
-   LOADER.fail(message, html) stops on the failure note. */
+   LOADER.fail(message, html) stops on the failure note.
+   The sentences come in LOADER_WORDS: the window's language ("lang") and every sentence of scripts\launcher-strings.json
+   in it, by key (the draft page reads them from the same file, make.py --draft). */
 (() => {
   const q = new URLSearchParams(location.search);
   const root = document.documentElement;
   const mq = matchMedia("(prefers-reduced-motion: reduce)");
-
-  const WORDS = {
-    zh: { starting: "正在启动 Model Depot…", long: "启动所需时间较平常更长，Model Depot 仍在启动。", failed: "Model Depot 未能启动。",
-      retry: "重试", logs: "打开日志文件夹", window: "窗口", min: "最小化", max: "最大化", restore: "向下还原", close: "关闭" },
-    en: { starting: "Starting Model Depot…", long: "This is taking longer than usual. Model Depot is still starting.",
-      failed: "Model Depot could not start.", retry: "Retry", logs: "Open log folder", window: "Window",
-      min: "Minimize", max: "Maximize", restore: "Restore Down", close: "Close" },
-  };
-  // the drafts only: a log tail of the kind the window passes (the message is the program's own, depot/main.py)
-  const SAMPLE_LOG = "2026-10-08 09:14:03,402 INFO depot: settings read from data\\config.json\n" +
-    "2026-10-08 09:14:03,618 ERROR depot: port 8194 is already in use: is Model Depot already running?";
 
   // until the first frame is drawn the composition is not shown (it would show once where its opening ends); without
   // the script it shows as it stands
@@ -130,7 +121,8 @@
   L.blocksTo = (g, small, dx, dy, dw, dh) => {
     g.save(); g.imageSmoothingEnabled = false; g.drawImage(small, dx, dy, dw, dh); g.restore();
   };
-  L.words = Object.assign({}, WORDS[L.lang], given);
+  L.words = given;
+  L.word = (key) => (typeof L.words[key] === "string" ? L.words[key] : "");
 
   // ---- the page's own parts ----------------------------------------------------------------------------------------
   const $ = (s) => document.querySelector(s);
@@ -141,18 +133,17 @@
   }
 
   function labelWindow() {
-    const W = L.words;
-    document.querySelectorAll("[data-l-aria]").forEach((el) => el.setAttribute("aria-label", W[el.dataset.lAria]));
+    document.querySelectorAll("[data-l-aria]").forEach((el) => el.setAttribute("aria-label", L.word(el.dataset.lAria)));
     const max = $(".win [data-cmd=max]");
-    if (max) max.setAttribute("aria-label", root.dataset.max !== undefined ? W.restore : W.max);
+    if (max) max.setAttribute("aria-label", L.word(root.dataset.max !== undefined ? "win_restore" : "win_max"));
   }
 
   function wire() {
     bar = $(".hand .bar"); ground = $(".hand .ground"); barWm = $(".hand .wm");
     msg = $("[data-msg]"); msg2 = $("[data-msg2]"); failBox = $("[data-fail]"); win = $(".win");
     outs = [...document.querySelectorAll("[data-out]")];
-    if (msg) msg.textContent = L.words.starting;
-    if (msg2) msg2.textContent = L.words.long;
+    if (msg) msg.textContent = L.word("app_starting");
+    if (msg2) msg2.textContent = L.word("loader_long");
     labelWindow();
     document.addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-cmd]");
@@ -331,15 +322,16 @@
     L.exitAt = null;
     root.dataset.state = "failed";
     undoExit();
-    if (msg) msg.textContent = message || L.words.failed;
+    if (msg) msg.textContent = message || L.word("app_failed");
     if (failBox) {
       if (extraHtml !== undefined) failBox.innerHTML = extraHtml;
       else {
         failBox.innerHTML = `<pre></pre><div class="act"><button type="button" class="solid" data-cmd="retry"></button><button type="button" data-cmd="logs"></button></div>`;
-        if (document.querySelector(".proto")) failBox.querySelector("pre").textContent = SAMPLE_LOG;
+        // the draft page carries a sample log tail (make.py --draft)
+        if (document.querySelector(".proto") && typeof window.LOADER_SAMPLE_LOG === "string") failBox.querySelector("pre").textContent = window.LOADER_SAMPLE_LOG;
         else failBox.querySelector("pre").remove();
-        failBox.querySelector(".solid").textContent = L.words.retry;
-        failBox.querySelector("[data-cmd=logs]").textContent = L.words.logs;
+        failBox.querySelector(".solid").textContent = L.word("app_retry");
+        failBox.querySelector("[data-cmd=logs]").textContent = L.word("app_logs");
       }
     }
     if (L.dir) { L.dirty = true; render(L.t); }

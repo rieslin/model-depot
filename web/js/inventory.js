@@ -2,7 +2,8 @@
 // Deliberately bare: it is here to check the scan, not to be the model library page.
 import { api } from './api.js';
 import { h, clear, fill, formatBytes, formatDuration } from './dom.js';
-import { t, currentLang } from './i18n.js';
+import { t, locale, joinList } from './i18n.js';
+import { pageSetting, serverState } from './ui.js';
 
 const STATUS_KEYS = { civitai: 'inv.status_civitai', local: 'inv.status_local', no_check: 'inv.status_no_check', unidentified: 'inv.status_unidentified',
   waiting: 'inv.status_waiting', error: 'inv.status_error' };
@@ -12,16 +13,20 @@ const STATUS_CLASS = { civitai: 'good', local: 'good', no_check: 'dim', unidenti
 // civitai's trouble in words, not codes
 const WHY = { network: 'inv.why_network', rate_limited: 'inv.why_rate_limited', server: 'inv.why_server', auth: 'inv.why_auth' };
 const why = (code) => t(WHY[code] || 'inv.why_other');
-const KIND_ORDER = ['checkpoint', 'diffusion_model', 'lora', 'embedding', 'vae', 'text_encoder', 'upscaler', 'controlnet'];
-const HIDDEN_KIND = 'other';
+// The kinds left out are the page's setting (advanced.json "page" inventory_hidden_kinds); the rest in the server's order.
+const hiddenKinds = () => pageSetting('inventory_hidden_kinds');
+const kindOrder = () => serverState().kinds.filter((k) => !hiddenKinds().includes(k));
+const time = (seconds) => new Date(seconds * 1000).toLocaleTimeString(locale());
 
-// The counts without the hidden kind.
+// The counts without the hidden kinds.
 function shownSummary(s) {
-  const hidden = s.by_kind[HIDDEN_KIND];
-  if (!hidden) return s;
   const out = { ...s, by_kind: { ...s.by_kind } };
-  delete out.by_kind[HIDDEN_KIND];
-  for (const key of ['files', 'bytes', 'civitai', 'local', 'identified', 'no_check', 'unidentified', 'waiting', 'error']) out[key] -= hidden[key] || 0;
+  for (const kind of hiddenKinds()) {
+    const hidden = out.by_kind[kind];
+    if (!hidden) continue;
+    delete out.by_kind[kind];
+    for (const key of ['files', 'bytes', 'civitai', 'local', 'identified', 'no_check', 'unidentified', 'waiting', 'error']) out[key] -= hidden[key] || 0;
+  }
   return out;
 }
 
@@ -116,13 +121,13 @@ export function renderInventory(root) {
     lines.push(h('p', null, h('b', null, t('inv.scan') + ' '),
       scan.running ? t('inv.scan_running')
         : scan.error ? h('span', { class: 'bad' }, scan.error)
-          : scan.finished_at ? t('inv.scan_done', { time: new Date(scan.finished_at * 1000).toLocaleTimeString() }) : t('inv.scan_never')));
+          : scan.finished_at ? t('inv.scan_done', { time: time(scan.finished_at) }) : t('inv.scan_never')));
     const missing = (scan.folders || []).filter((f) => !f.exists);
-    if (missing.length) lines.push(h('p', { class: 'warn' }, t('inv.folders_missing', { list: missing.map((f) => f.path).join(' ; ') })));
+    if (missing.length) lines.push(h('p', { class: 'warn' }, t('inv.folders_missing', { list: joinList(missing.map((f) => f.path), true) })));
     // fingerprints
     const hash = p.hash;
     const hashText = t('inv.hash_counts', { done: hash.done_files, total: hash.files, done_bytes: formatBytes(hash.done_bytes), total_bytes: formatBytes(hash.bytes) });
-    const current = hash.current.map((c) => c.name + ' ' + Math.floor(100 * c.done / Math.max(1, c.bytes)) + '%').join(' ; ');
+    const current = joinList(hash.current.map((c) => c.name + ' ' + Math.floor(100 * c.done / Math.max(1, c.bytes)) + '%'), true);
     lines.push(h('div', { class: 'bar' }, h('b', null, t('inv.hash')),
       h('progress', { max: Math.max(1, hash.bytes), value: hash.done_bytes }), hashText,
       hash.running && !hash.paused && hash.speed ? h('span', { class: 'dim' }, t('inv.hash_speed', { speed: formatBytes(hash.speed), eta: formatDuration(hash.eta) })) : null,
@@ -138,7 +143,7 @@ export function renderInventory(root) {
       t('inv.civitai_counts', { found: civ.found, not_found: civ.not_found, bundled: civ.bundled, pending: civ.pending }),
       civ.running ? ' ' + t('inv.civitai_running') : '',
       civ.last_error ? h('span', { class: 'bad' }, ' ' + t('inv.civitai_error', { code: why(civ.last_error) })) : null,
-      civ.waiting_until ? h('span', { class: 'dim' }, ' ' + t('inv.civitai_retry', { time: new Date(civ.waiting_until * 1000).toLocaleTimeString() })) : null));
+      civ.waiting_until ? h('span', { class: 'dim' }, ' ' + t('inv.civitai_retry', { time: time(civ.waiting_until) })) : null));
     // covers
     lines.push(h('p', null, h('b', null, t('inv.covers') + ' '), t('inv.covers_counts', { ready: p.covers.ready, failed: p.covers.failed }),
       p.covers.running ? ' ' + t('inv.covers_running') : ''));
@@ -153,14 +158,14 @@ export function renderInventory(root) {
     }
     const last = fl.running || !fl.finished_at ? null
       : fl.error ? h('span', { class: 'bad' }, t('inv.fill_error', { code: why(fl.error) }))
-        : t(fl.stopped ? 'inv.fill_stopped' : 'inv.fill_done', { time: new Date(fl.finished_at * 1000).toLocaleTimeString() });
+        : t(fl.stopped ? 'inv.fill_stopped' : 'inv.fill_done', { time: time(fl.finished_at) });
     lines.push(h('div', { class: 'bar' }, h('b', null, t('inv.fill')), state,
       fl.running
         ? h('button', { onclick: () => act(() => api('POST', '/api/ui/fill', { action: 'stop' })) }, t('inv.fill_stop'))
         : h('button', { onclick: () => act(() => api('POST', '/api/ui/fill', { action: 'start' })) }, t('inv.fill_start'))));
     const after = [fl.reading ? t('inv.fill_reading', { n: fl.reading }) : null, last,
       fl.failed ? t('inv.fill_failed', { n: fl.failed }) : null].filter(Boolean);
-    const sep = currentLang() === 'zh' ? '；' : '; ';
+    const sep = t('list.sep_long');
     if (after.length) lines.push(h('p', { class: 'dim' }, after.flatMap((x, i) => (i ? [sep, x] : [x]))));
     // the counts of what is missing are read again when a run ends, and while the local model works through its queue
     if (view.fillRunning && !fl.running) loadNeeds();
@@ -177,11 +182,11 @@ export function renderInventory(root) {
         up.running
           ? h('button', { onclick: () => act(() => api('POST', '/api/ui/updates', { action: 'stop' })) }, t('inv.updates_stop'))
           : h('button', { onclick: () => act(() => api('POST', '/api/ui/updates', { action: 'start' })) }, t('inv.updates_start'))));
-      const minutes = Math.max(1, Math.ceil((up.pages || 0) * 2 / 60));
-      const when = up.checked_at ? new Date(up.checked_at * 1000).toLocaleString() : null;
+      const minutes = Math.max(1, Math.ceil((up.pages || 0) * serverState().config.civitai.request_interval / 60));
+      const when = up.checked_at ? new Date(up.checked_at * 1000).toLocaleString(locale()) : null;
       const about = up.running ? null
         : up.error ? h('span', { class: 'bad' }, t('inv.updates_error', { code: why(up.error) }))
-          : up.stopped && up.finished_at ? t('inv.updates_stopped', { time: new Date(up.finished_at * 1000).toLocaleTimeString() })
+          : up.stopped && up.finished_at ? t('inv.updates_stopped', { time: time(up.finished_at) })
             : when ? t('inv.updates_last', { time: when, pages: up.pages, minutes }) : t('inv.updates_first', { pages: up.pages, minutes });
       const tail = [about, up.failed && !up.running ? t('inv.updates_failed', { n: up.failed }) : null].filter(Boolean);
       if (tail.length) lines.push(h('p', { class: 'dim' }, tail.flatMap((x, i) => (i ? [sep, x] : [x]))));
@@ -196,7 +201,7 @@ export function renderInventory(root) {
   function drawKinds() {
     const s = view.summary;
     if (!s) return;
-    const names = Object.keys(s.by_kind).sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b));
+    const names = Object.keys(s.by_kind).sort((a, b) => kindOrder().indexOf(a) - kindOrder().indexOf(b));
     fill(kinds, h('table', null,
       h('thead', null, h('tr', null, h('th', null, t('inv.col_kind')), h('th', { class: 'num' }, t('inv.n_files')),
         h('th', { class: 'num' }, t('inv.col_size')), h('th', { class: 'num' }, t('inv.n_identified')),
@@ -219,7 +224,7 @@ export function renderInventory(root) {
     h('label', null, t('inv.filter_kind'),
       h('select', { onchange: (e) => { view.kind = e.target.value; drawTable(); } },
         h('option', { value: '' }, t('inv.all')),
-        KIND_ORDER.map((k) => h('option', { value: k }, t('kind.' + k))))),
+        kindOrder().map((k) => h('option', { value: k }, t('kind.' + k))))),
     h('input', { type: 'text', placeholder: t('inv.search'), oninput: (e) => { view.query = e.target.value; drawTable(); } }),
   );
 
@@ -265,7 +270,7 @@ export function renderInventory(root) {
         try {
           const inv = await api('GET', '/api/ui/inventory');
           if (mine !== current) return;
-          view.files = inv.files.filter((f) => f.kind !== HIDDEN_KIND);
+          view.files = inv.files.filter((f) => !hiddenKinds().includes(f.kind));
           view.revision = inv.revision;
           view.fetchedAt = Date.now();
           drawTable();
@@ -277,7 +282,7 @@ export function renderInventory(root) {
       view.message = { text: e.message, cls: 'bad' };
       drawMessage();
     }
-    if (mine === current) timer = setTimeout(tick, view.progress && view.progress.busy ? 1000 : 4000);
+    if (mine === current) timer = setTimeout(tick, pageSetting(view.progress && view.progress.busy ? 'inventory_busy_ms' : 'inventory_idle_ms'));
   }
 
   tick(true);

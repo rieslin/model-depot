@@ -3,11 +3,12 @@ import { h, fill } from './dom.js';
 import { t } from './i18n.js';
 import { icon } from './ui.js';
 
-const LICENSE = ['GNU General Public License 3.0', 'https://www.gnu.org/licenses/gpl-3.0.html'];
-
 let dialog = null;
 
-export function openAbout(version) {
+// `state`: what /api/ui/state gave (the version, the license's address, the copyright line); null if it could not be read.
+export function openAbout(state) {
+  const s = state || {};
+  const version = s.version || '';
   if (!dialog) {
     dialog = h('dialog', { class: 'about', 'aria-labelledby': 'about-title' });
     dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });    // a click on the backdrop
@@ -23,7 +24,7 @@ export function openAbout(version) {
       h('p', null, t('about.overview_1')),
       h('p', null, t('about.overview_2')),
       h('p', { class: 'about-license' }, h('span', null, t('about.license')),
-        h('a', { href: LICENSE[1], target: '_blank', rel: 'noopener noreferrer' }, LICENSE[0]))),
-    h('p', { class: 'about-foot' }, '©2026 ZEUS INSiGHTS'));
+        h('a', { href: s.license_url, target: '_blank', rel: 'noopener noreferrer' }, t('about.license_name')))),
+    h('p', { class: 'about-foot' }, s.copyright || ''));
   dialog.showModal();
 }

@@ -11,15 +11,35 @@ import re
 import statistics
 from collections import Counter
 
+from . import catalog
+
+
 # ---- sampler and scheduler names: WebUI's words to ComfyUI's ------------------------------------------------------
-COMFY_SAMPLERS = (
-    "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2", "dpm_2", "dpm_2_ancestral",
-    "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu",
-    "dpmpp_2m", "dpmpp_2m_cfg_pp", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm", "lcm",
-    "ipndm", "ipndm_v", "deis", "res_multistep", "res_multistep_cfg_pp", "res_multistep_ancestral", "gradient_estimation",
-    "er_sde", "seeds_2", "seeds_3", "sa_solver", "ddim", "uni_pc", "uni_pc_bh2")
-COMFY_SCHEDULERS = ("simple", "sgm_uniform", "karras", "exponential", "ddim_uniform", "beta", "normal", "linear_quadratic",
-                    "kl_optimal")
+def _samplers():
+    return catalog.load("comfyui")["samplers"]
+
+
+def _schedulers():
+    return catalog.load("comfyui")["schedulers"]
+
+
+def comfy_samplers():
+    """ComfyUI's sampler names, the ones a card's sampler is chosen from (comfyui catalog)."""
+    return tuple(_samplers())
+
+
+def comfy_schedulers():
+    """ComfyUI's scheduler names, the ones a card's scheduler is chosen from (comfyui catalog)."""
+    return tuple(_schedulers())
+
+
+def __getattr__(name):
+    if name == "COMFY_SAMPLERS":
+        return comfy_samplers()
+    if name == "COMFY_SCHEDULERS":
+        return comfy_schedulers()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
+
 
 # WebUI's sampler names, longest first so that "DPM++ 2M SDE" is not read as "DPM++ 2M".
 _WEBUI_SAMPLERS = (
@@ -48,7 +68,7 @@ def comfy_sampler(name):
     text = _words(name)
     if not text:
         return None, None
-    if text in COMFY_SAMPLERS:
+    if text in _samplers():
         return text, None
     sampler = None
     for webui, comfy in _WEBUI_SAMPLERS:
@@ -67,7 +87,7 @@ def comfy_scheduler(name):
     text = _words(name)
     if not text or text in ("automatic", "auto", "default"):
         return None
-    if text in COMFY_SCHEDULERS:
+    if text in _schedulers():
         return text
     for webui, comfy in _WEBUI_SCHEDULERS:
         if text.startswith(webui):
@@ -86,7 +106,7 @@ def find_sampler(text):
         for m in re.finditer(r"(?<![\w+])" + re.escape(webui) + r"(?![\w+])", low):
             if best is None or m.start() < best[0] or (m.start() == best[0] and len(webui) > best[1]):
                 best = (m.start(), len(webui), comfy)
-    for comfy in COMFY_SAMPLERS:
+    for comfy in _samplers():
         for m in re.finditer(r"(?<![\w])" + re.escape(comfy) + r"(?![\w])", low):
             if best is None or m.start() < best[0]:
                 best = (m.start(), len(comfy), comfy)
@@ -113,6 +133,7 @@ def _num(value, kind=float):
 def stem(name):
     """A file or tag name without folders and extension, lower-cased: how names are compared."""
     base = re.split(r"[\\/]", str(name or ""))[-1].strip().lower()
+    # the drafting's own list (cards.DRAFTER), not kinds' model extensions: more endings would match more names
     return re.sub(r"\.(safetensors|ckpt|pt|pth|bin|gguf)$", "", base)
 
 
@@ -125,7 +146,7 @@ def settings_of(image):
     stated = meta.get("Schedule type") or meta.get("scheduler")
     if stated:
         scheduler = comfy_scheduler(stated) or scheduler        # "Automatic" says nothing: keep what the name says
-    elif sampler and scheduler is None and _words(meta.get("sampler")) not in COMFY_SAMPLERS:
+    elif sampler and scheduler is None and _words(meta.get("sampler")) not in _samplers():
         scheduler = "normal"        # an older WebUI name without a scheduler word: WebUI's plain schedule
     width = height = None
     size = _SIZE.match(str(meta.get("Size") or ""))

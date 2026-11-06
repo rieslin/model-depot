@@ -1,7 +1,9 @@
 """Reading the authors' notes with a local language model, when one is set up; by the rules (card_text.py) otherwise.
 
 The user's choice (2026-10-02): the notes are read by a local, uncensored Qwen model, picked by the graphics card's
-memory (TIERS below). Below the lowest tier, or with no model set up, the rules read them and the dossier says so.
+memory (tiers() below, from the catalog "llm"). Below the lowest tier, or with no model set up, the rules read them and
+the dossier says so. Graphics cards are seen through nvidia-smi only; a computer whose card it cannot see may give the
+card's memory in the advanced settings (reader.vram_gb).
 
 Two ways to reach a model, both speaking the OpenAI chat API:
 
@@ -31,58 +33,89 @@ import time
 
 import aiohttp
 
-from . import card_samples, card_text, cards
+from . import advanced, card_samples, card_text, cards, catalog
 from . import names as names_mod
 
 log = logging.getLogger("depot.reader")
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
+
 # ---- the models, by the graphics card's memory -----------------------------------------------------------------------
-# Measured or taken from the files' pages on 2026-10-02 (see docs/设计草案.md, 3.5). "vram" is the least memory the tier
-# is meant for, "ram" what the computer needs besides: the part of the model that does not fit on the card runs from
-# memory. Each file was checked to exist at its address; sizes are the files' own.
-MODELS = {
-    "qwen3.6-35b-a3b": {
-        "label": "Qwen3.6 35B-A3B Uncensored (Huihui, i1-Q4_K_M)", "short": "Qwen3.6 35B-A3B",
-        "repo": "mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-i1-GGUF",
-        "file": "Huihui-Qwen3.6-35B-A3B-abliterated.i1-Q4_K_M.gguf",
-        "gb": 21.3, "vram": 8, "ram": 32,
-    },
-    "qwen3.8-27b": {
-        "label": "Qwen3.8 27B Uncensored (orcarouter, IQ4_XS)", "short": "Qwen3.8 27B",
-        "repo": "bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF",
-        "file": "orcarouter_Qwen3.8-27B-Uncensored-IQ4_XS.gguf",
-        "gb": 15.6, "vram": 12, "ram": 24,
-    },
-    "qwen3.8-27b-q6": {
-        "label": "Qwen3.8 27B Uncensored (orcarouter, Q6_K)", "short": "Qwen3.8 27B",
-        "repo": "bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF",
-        "file": "orcarouter_Qwen3.8-27B-Uncensored-Q6_K.gguf",
-        "gb": 23.5, "vram": 24, "ram": 16,
-    },
-}
+def models():
+    """{key: model} the program recommends and installs (catalog "llm"): label, short, repo, file, revision, gb, and
+    vram, the least card memory in GB the model is meant for, and ram, what the computer needs besides (the part of
+    the model that does not fit on the card runs from memory)."""
+    return catalog.load("llm").get("models") or {}
+
+
+def _number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def tiers():
+    """((least card memory in GB, model key), ...), the most memory first; the first the card has is recommended."""
+    rated = [(m["vram"], key) for key, m in models().items() if isinstance(m, dict) and _number(m.get("vram"))]
+    return tuple(sorted(rated, key=lambda tier: -tier[0]))
+
+
+def min_vram_gb():
+    """The lowest tier's card memory: below it the rules read the notes. None when no model has a tier."""
+    rated = tiers()
+    return rated[-1][0] if rated else None
+
+
+def system_prompt():
+    """What the model is told before each reading of notes (catalog text "prompt-notes")."""
+    return catalog.text("prompt-notes")
+
+
+def __getattr__(name):
+    # the names other modules read before these lists moved to the catalog
+    if name == "MODELS":
+        return models()
+    if name == "TIERS":
+        return tiers()
+    if name == "MIN_VRAM_GB":
+        return min_vram_gb()
+    if name == "SYSTEM":
+        return system_prompt()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 
 def display_name(label):
     """The name the dossier shows for the model that read a model's notes: the short one ("Qwen3.8 27B") when its
-    file is one of MODELS (the user's choice, 2026-10-02); any other file or server model as it is named."""
+    file is one of the recommended models (the user's choice, 2026-10-02); any other file or server model as it is
+    named."""
     label = str(label or "")
-    for model in MODELS.values():
+    for model in models().values():
         if label == os.path.splitext(model["file"])[0]:
             return model["short"]
     return label
-TIERS = ((24, "qwen3.8-27b-q6"), (12, "qwen3.8-27b"), (8, "qwen3.6-35b-a3b"))     # (least card memory in GB, model)
-MIN_VRAM_GB = TIERS[-1][0]
-# A managed server is not started while less than this share of the card is free: something else (ComfyUI making
-# an image) holds it, and the model would mostly run from memory, slowly, and squeeze the other. The desktop alone
-# takes 1 to 3 GB (an 8 GB card then has about 6 GB free, measured with a 12 GB card held down to that, 2026-10-02).
-START_FREE_SHARE = 0.6
+
+
+def assumed_vram_mb():
+    """The card memory the advanced settings give in place of nvidia-smi's reading (reader.vram_gb), in MB; None when
+    nvidia-smi is asked."""
+    gb = advanced.get("reader.vram_gb")
+    return int(gb * 1024) if gb > 0 else None
+
+
+def card_vram_mb(hardware):
+    """The card memory the model is picked by: the assumed memory when the settings give one, else the largest card's."""
+    assumed = assumed_vram_mb()
+    if assumed is not None:
+        return assumed
+    return max((g["vram_mb"] for g in (hardware or {}).get("gpus") or []), default=0)
 
 
 def start_free_mb(hardware):
+    """A managed server is not started while less than this is free on the card: something else (ComfyUI making an
+    image) holds it, and the model would mostly run from memory, slowly, and squeeze the other. The desktop alone
+    takes 1 to 3 GB (an 8 GB card then has about 6 GB free). Measured against the card's own total, as the free
+    memory it is compared with is."""
     vram = max((g["vram_mb"] for g in (hardware or {}).get("gpus") or []), default=0)
-    return max(4096, int(vram * START_FREE_SHARE))
+    return max(int(advanced.get("reader.start_free_min_mb")), int(vram * advanced.get("reader.start_free_share")))
 
 
 def _ram_mb():
@@ -148,32 +181,16 @@ def gpu_load_pct():
 
 
 def recommend(hardware):
-    """The model for this computer (a key of MODELS), or None when its graphics card is below the lowest tier."""
-    vram = max((g["vram_mb"] for g in hardware.get("gpus") or []), default=0) / 1024
-    for least, key in TIERS:
+    """The model for this computer (a key of models()), or None when its graphics card is below the lowest tier."""
+    vram = card_vram_mb(hardware) / 1024
+    for least, key in tiers():
         if vram >= least - 0.5:         # a "12 GB" card reports a little under 12 * 1024 MB
             return key
     return None
 
 
 # ---- what is asked ---------------------------------------------------------------------------------------------------
-SYSTEM = (
-    "You read the notes the author of an image-generation model wrote for it on civitai, and pick out the settings the "
-    "author recommends for one particular version of that model. Answer with JSON only, as the schema says.\n"
-    "Rules:\n"
-    "- Use only what the notes say. Never guess, never fill in from general knowledge.\n"
-    "- The notes may speak of several versions. Use what is said for the version named in the request, or for every "
-    "version; ignore what is said only about other versions.\n"
-    "- Copy values exactly as the notes write them: a range as written (\"20-30\", \"5~7\"), a sampler or scheduler by "
-    "the name the notes use, prompts word for word.\n"
-    "- A setting the notes do not give for this version is null.\n"
-    "- prompt_prefix is the quality or style text the author says to put at the start of the prompt; negative_prefix "
-    "is the negative prompt the author recommends. Not the prompt of one example picture.\n"
-    "- For a LoRA, weight is the strength the author recommends; trigger_words are the words the author says to use, "
-    "each marked required when the author says it is always needed (the main trigger), not required when it is for "
-    "an option (an outfit, a pose, a variant).\n"
-    "- For an embedding, use says whether it goes into the prompt (positive) or the negative prompt (negative).")
-
+# The instructions are system_prompt() (catalog text "prompt-notes"); the shape of the answer, by kind:
 _STR = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 SCHEMAS = {
     "checkpoint": {"type": "object", "additionalProperties": False,
@@ -193,29 +210,28 @@ SCHEMAS = {
                                  "trigger": _STR},
                   "required": ["use", "trigger"]},
 }
-MAX_ANSWER_TOKENS = 4096        # the longest answer asked for
-MAX_VERSION_TEXT = 6000         # characters of the version's notes given to the model
-MAX_MODEL_TEXT = 14000          # and of the model page's notes
 _KIND_WORDS = {"checkpoint": "checkpoint (a full model)", "lora": "LoRA", "embedding": "embedding (textual inversion)"}
 
 
 def _plain(html, limit):
+    limit = int(limit)
     text = "\n".join(card_text.html_to_lines(html))
     return text if len(text) <= limit else text[:limit] + "\n[...]"
 
 
 def notes_input(kind, version_name, version_html, model_html, other_names, words):
-    """What the model is given, and its key: a reading is good for as long as the key stays the same."""
+    """What the model is given, and its key: a reading is good for as long as the key stays the same. The key is made
+    of what is actually sent (the instructions and the message), so changing either reads every model again."""
     ckind = cards.card_kind(kind)
-    version_text = _plain(version_html, MAX_VERSION_TEXT)
-    model_text = _plain(model_html, MAX_MODEL_TEXT)
+    version_text = _plain(version_html, advanced.get("reader.max_version_text"))
+    model_text = _plain(model_html, advanced.get("reader.max_model_text"))
     others = [n for n in other_names if n and n != version_name]
     message = (
         "Version in use: %s\nOther versions of this model: %s\nKind of model: %s\nTrigger words civitai lists for this "
         "version: %s\n\n=== Notes for this version ===\n%s\n\n=== Notes for the whole model ===\n%s" % (
             version_name or "(no name)", ", ".join(others) or "none", _KIND_WORDS.get(ckind, ckind),
             ", ".join(words) or "none", version_text or "(none)", model_text or "(none)"))
-    key = hashlib.sha1(json.dumps([ckind, message, SYSTEM], ensure_ascii=False).encode("utf-8")).hexdigest()
+    key = hashlib.sha1(json.dumps([ckind, message, system_prompt()], ensure_ascii=False).encode("utf-8")).hexdigest()
     return {"kind": ckind, "message": message, "key": key, "has_notes": bool(version_text or model_text),
             "notes": version_text + "\n" + model_text}
 
@@ -430,22 +446,26 @@ class ReaderError(Exception):
 
 
 # ---- talking to a model ------------------------------------------------------------------------------------------------
-async def ask(session, base_url, model, kind, message, api_key="", timeout=600):
+async def ask(session, base_url, model, kind, message, api_key="", timeout=None):
     """One reading: the model's answer as a dict, the seconds it took, and the token counts when the server says."""
-    # an author may list a whole prompt as trigger words (154 of them, 2026-10-06): 800 cut such an answer short
-    return await ask_json(session, base_url, model, SYSTEM, message, SCHEMAS[kind], MAX_ANSWER_TOKENS, api_key, timeout)
+    # an author may list a whole prompt as trigger words (154 of them): the answer must have room for them all
+    return await ask_json(session, base_url, model, system_prompt(), message, SCHEMAS[kind],
+                          int(advanced.get("reader.max_answer_tokens")), api_key, timeout)
 
 
-async def ask_json(session, base_url, model, system, message, schema, max_tokens, api_key="", timeout=600):
-    """Ask for one JSON object of `schema`: (answer, seconds, token counts). Raises ReaderError."""
+async def ask_json(session, base_url, model, system, message, schema, max_tokens, api_key="", timeout=None):
+    """Ask for one JSON object of `schema`: (answer, seconds, token counts). Raises ReaderError. The timeout is the
+    reading's (reader.read_timeout) unless one is given."""
+    if timeout is None:
+        timeout = advanced.get("reader.read_timeout")
     body = {
         "model": model or "local",
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": message}],
-        "temperature": 0,
+        "temperature": 0,           # the same notes are to give the same reading
         "max_tokens": max_tokens,
         "response_format": {"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}},
-        "chat_template_kwargs": {"enable_thinking": False},      # Qwen: answer straight away
     }
+    body.update(advanced.get("reader.request_extra"))       # by default, Qwen: answer straight away, without thinking
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = "Bearer " + api_key
@@ -495,13 +515,17 @@ class ManagedServer:
     def running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    async def start(self, session, wait=600):
-        """Start the server and wait until the model is loaded. Raises ReaderError."""
+    async def start(self, session, wait=None):
+        """Start the server and wait until the model is loaded (at most reader.start_timeout unless `wait` is given).
+        Raises ReaderError."""
         if self.running:
             return self.base_url
+        if wait is None:
+            wait = advanced.get("reader.start_timeout")
         if not os.path.isfile(self.server) or not os.path.isfile(self.model_file):
             raise ReaderError("files_missing", "%s | %s" % (self.server, self.model_file))
         port = _free_port()
+        # 127.0.0.1: this computer only; --jinja: the model's own chat template; -np 1: one reading at a time
         cmd = [self.server, "-m", self.model_file, "--host", "127.0.0.1", "--port", str(port), "-c", str(self.context),
                "--jinja", "-np", "1"] + self.args
         if self.log_path:
@@ -565,20 +589,17 @@ class ManagedServer:
 # ---- the queue ---------------------------------------------------------------------------------------------------------
 ANSWER_FAILURES = ("bad_answer", "too_long")    # the model answered, unusably: asking again gets the same answer
 NAME = "name:"                  # a queued key naming a model rather than reading a file's notes
-GPU_WAIT_RETRY = 60.0          # seconds between looks at a graphics card that something else is using
-GPU_WAIT_LIMIT = 1800.0         # after this long, a reading waiting for the card is given up (until asked again)
-GUARD_INTERVAL = 2.0            # seconds between looks at the card while the managed server runs
+# Waiting for the graphics card: reader.wait_retry between looks at a card that something else is using, given up
+# after reader.wait_limit (until asked again); reader.guard_interval between looks while the managed server runs.
 # Two signs that another program (ComfyUI making an image, a game) wants the card, and the managed server is stopped
 # for it; a stop for nothing costs only a reload later.
-# - The card computes while the local model is between readings: OTHERS_LOAD_PCT or more on two looks in a row (the
-#   desktop alone stays under about 20 %). Also looked at before the server starts. This is the sign that works on a
-#   full card: on Windows, a program that takes memory then does not lower the card's free memory, because Windows
-#   moves the idle server's memory into the computer's to make room (measured 2026-10-02: 4 GB taken, free memory
-#   down by 0.2 GB only, and 3.8 GB of the server's memory out of the card).
-# - The card's free memory falls GIVE_WAY_MB below what was free once the model had loaded (seen on a card with room
-#   to spare). llama.cpp holds its own memory steady while it reads; the desktop alone moves by up to 0.4 GB.
-OTHERS_LOAD_PCT = 30
-GIVE_WAY_MB = 512
+# - The card computes while the local model is between readings: reader.others_load_pct or more on reader.busy_looks
+#   looks in a row (the desktop alone stays under about 20 %). Also looked at before the server starts. This is the
+#   sign that works on a full card: on Windows, a program that takes memory then does not lower the card's free
+#   memory, because Windows moves the idle server's memory into the computer's to make room (measured: 4 GB taken,
+#   free memory down by 0.2 GB only, and 3.8 GB of the server's memory out of the card).
+# - The card's free memory falls reader.give_way_mb below what was free once the model had loaded (seen on a card with
+#   room to spare). llama.cpp holds its own memory steady while it reads; the desktop alone moves by up to 0.4 GB.
 
 
 class ReaderService:
@@ -637,12 +658,15 @@ class ReaderService:
         return False, ("vram_low" if recommend(self.hardware()) is None else "not_set_up"), None
 
     def status(self):
+        """hardware: what nvidia-smi reports, and assumed_vram_mb, the card memory the advanced settings give in its
+        place (None when they give none): the model is then recommended by that, with or without a card seen."""
         ready, reason, label = self.availability()
         hw = self.hardware()
         return {"mode": self.cfg.data["reader"]["mode"], "ready": ready, "reason": reason, "model": label,
                 "server_running": bool(self.server and self.server.running), "queued": len(self.queue),
                 "idle_stop": self.cfg.data["reader"]["idle_stop"],
-                "hardware": hw, "recommended": recommend(hw), "min_vram_gb": MIN_VRAM_GB}
+                "hardware": dict(hw, assumed_vram_mb=assumed_vram_mb()), "recommended": recommend(hw),
+                "min_vram_gb": min_vram_gb()}
 
     def state_of(self, sha):
         return self.states.get(sha)
@@ -720,10 +744,13 @@ class ReaderService:
         return self._current is not None and (self.states.get(self._current) or {}).get("state") == "reading"
 
     async def _guard(self, server):
-        """While the managed server runs: when another program starts using the graphics card (see OTHERS_LOAD_PCT
-        and GIVE_WAY_MB), the server is stopped and the card is left to it. A reading under way then waits for the
-        card, as one that finds the card busy does."""
+        """While the managed server runs: when another program starts using the graphics card (the two signs above
+        ReaderService), the server is stopped and the card is left to it. A reading under way then waits for the card,
+        as one that finds the card busy does. With no card that nvidia-smi sees (its memory given in the advanced
+        settings) there is nothing to read the signs from, and the server is left alone."""
         loop = asyncio.get_running_loop()
+        if not (await loop.run_in_executor(None, self.hardware)).get("gpus"):
+            return
         most_free = None
         busy_looks = 0
         while self.server is server and server.running:
@@ -732,12 +759,13 @@ class ReaderService:
             if free is not None:
                 if most_free is None or free > most_free:
                     most_free = free
-                elif most_free - free >= GIVE_WAY_MB:
+                elif most_free - free >= advanced.get("reader.give_way_mb"):
                     why = "%d MB free, %d before" % (free, most_free)
             # while the local model reads, the card's load is its own
             load = None if self._reading_now() else await loop.run_in_executor(None, self._gpu_load)
-            busy_looks = busy_looks + 1 if load is not None and load >= OTHERS_LOAD_PCT else 0
-            if why is None and busy_looks >= 2:
+            busy = load is not None and load >= advanced.get("reader.others_load_pct")
+            busy_looks = busy_looks + 1 if busy else 0
+            if why is None and busy_looks >= advanced.get("reader.busy_looks"):
                 why = "the card %d%% busy while the local model is idle" % load
             if why is not None and self.server is server:
                 log.info("another program is using the graphics card (%s): stopping the local model", why)
@@ -747,7 +775,7 @@ class ReaderService:
                 await self.stop_server()
                 self.on_change()
                 return
-            await asyncio.sleep(GUARD_INTERVAL)
+            await asyncio.sleep(advanced.get("reader.guard_interval"))
 
     def reconfigure(self):
         """The settings changed: a running server may be the wrong one now."""
@@ -783,7 +811,7 @@ class ReaderService:
                     retry = False
                 self.on_change()
                 if retry:
-                    asyncio.get_running_loop().call_later(GPU_WAIT_RETRY, self._requeue, sha)
+                    asyncio.get_running_loop().call_later(advanced.get("reader.wait_retry"), self._requeue, sha)
 
     def _requeue(self, sha):
         if not self._stopping and self.states.get(sha, {}).get("state") == "waiting_gpu":
@@ -803,13 +831,15 @@ class ReaderService:
             await self.stop_server()
             # just after giving the card away, the card looks free for a moment (the server's memory is back, the
             # other program may be between steps): the readings left in the queue wait as the interrupted one does
-            if self._gave_way_at is not None and time.monotonic() - self._gave_way_at < GPU_WAIT_RETRY:
-                raise ReaderError("gpu_busy", "gave the card away %d s ago" % (time.monotonic() - self._gave_way_at))
+            gave_way = time.monotonic() - self._gave_way_at if self._gave_way_at is not None else None
+            if gave_way is not None and gave_way < advanced.get("reader.wait_retry"):
+                raise ReaderError("gpu_busy", "gave the card away %d s ago" % gave_way)
+            # no reading (no card nvidia-smi sees): nothing tells that the card is busy, and it is not taken to be
             free = self._free_mb()
             if free is not None and free < start_free_mb(self.hardware()):
                 raise ReaderError("gpu_busy", "%d MB free" % free)
             load = self._gpu_load()
-            if load is not None and load >= OTHERS_LOAD_PCT:
+            if load is not None and load >= advanced.get("reader.others_load_pct"):
                 raise ReaderError("gpu_busy", "the card is %d%% busy" % load)
             self.server = ManagedServer(m["server"], m["model_file"], m["context"], m["args"],
                                         os.path.join(self.log_dir, "llama-server.log"))
@@ -858,7 +888,7 @@ class ReaderService:
             if outcome is not None:
                 return outcome
             since = waiting_since or time.time()
-            if e.code == "gpu_busy" and time.time() - since < GPU_WAIT_LIMIT:
+            if e.code == "gpu_busy" and time.time() - since < advanced.get("reader.wait_limit"):
                 self.states[key] = {"state": "waiting_gpu", "error": None, "since": time.time(), "waiting_since": since}
                 return True
             self.states.pop(key, None)
@@ -867,7 +897,8 @@ class ReaderService:
         try:
             answer, seconds, _usage = await ask_json(self._get_session(), base, model, names_mod.SYSTEM,
                                                      "Title: " + inputs["title"], names_mod.SCHEMA,
-                                                     names_mod.MAX_ANSWER_TOKENS, api_key, timeout=180)
+                                                     names_mod.MAX_ANSWER_TOKENS, api_key,
+                                                     timeout=advanced.get("reader.name_timeout"))
         except ReaderError as e:
             outcome = self._after_interruption(key)
             if outcome is not None:
@@ -907,7 +938,7 @@ class ReaderService:
                 return outcome
             if e.code == "gpu_busy":
                 since = waiting_since or time.time()
-                if time.time() - since < GPU_WAIT_LIMIT:
+                if time.time() - since < advanced.get("reader.wait_limit"):
                     self.states[sha] = {"state": "waiting_gpu", "error": None, "since": time.time(),
                                         "waiting_since": since}
                     return True

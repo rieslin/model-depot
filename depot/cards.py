@@ -36,6 +36,7 @@ FIELDS = {
     "embedding": ("use", "trigger", "notes"),
 }
 MAX_TEXT = 8000
+MAX_TRIGGER = 500       # characters of one trigger word
 
 
 class CardError(ValueError):
@@ -309,7 +310,7 @@ def clean_value(field, value):
             if not isinstance(item, dict) or not isinstance(item.get("required", True), bool):
                 raise CardError(field, "bad_value")
             text = _clean_text(item.get("text"), field)
-            if not text or len(text) > 500:
+            if not text or len(text) > MAX_TRIGGER:
                 raise CardError(field, "bad_value")
             out.append({"text": text, "required": item.get("required", True)})
         return out

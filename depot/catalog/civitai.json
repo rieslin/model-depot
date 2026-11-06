@@ -1,0 +1,79 @@
+{
+  "_about": "civitai's names. type_by_model: civitai model type (lower case) -> the ComfyUI type its files go to. type_by_file: civitai file type (lower case) -> the type that part goes to, whatever the page. model_types_by_kind: the civitai model types that fit each kind of file. model_file_types: civitai file types that are the model itself. version_precision_pattern, version_noise_words: how version names write a precision or format, and words that tell nothing about a version's line (updates).",
+  "type_by_model": {
+    "checkpoint": "checkpoints",
+    "lora": "loras",
+    "locon": "loras",
+    "dora": "loras",
+    "lycoris": "loras",
+    "textualinversion": "embeddings",
+    "vae": "vae",
+    "upscaler": "upscale_models",
+    "controlnet": "controlnet",
+    "hypernetwork": "hypernetworks"
+  },
+  "type_by_file": {
+    "vae": "vae",
+    "text encoder": "text_encoders",
+    "textencoder": "text_encoders",
+    "diffusion model": "diffusion_models",
+    "unet": "diffusion_models",
+    "negative": "embeddings"
+  },
+  "model_types_by_kind": {
+    "checkpoint": [
+      "checkpoint"
+    ],
+    "diffusion_model": [
+      "checkpoint"
+    ],
+    "lora": [
+      "lora",
+      "locon",
+      "dora"
+    ],
+    "embedding": [
+      "textualinversion"
+    ],
+    "vae": [
+      "vae"
+    ],
+    "text_encoder": [
+      "textencoder"
+    ],
+    "upscaler": [
+      "upscaler"
+    ],
+    "controlnet": [
+      "controlnet"
+    ]
+  },
+  "model_file_types": [
+    "model",
+    "pruned model"
+  ],
+  "version_precision_pattern": "(?<![a-z0-9])(bf16|fp16|fp32|fp8|int8|int4|nvfp4|q[2-8](?:_k(?:_[sm])?)?|gguf)(?![a-z0-9])",
+  "version_noise_words": [
+    "and",
+    "bf16",
+    "converted",
+    "convrot",
+    "dpo",
+    "e4m3fn",
+    "edition",
+    "experimental",
+    "fp16",
+    "fp32",
+    "fp8",
+    "free",
+    "full",
+    "gguf",
+    "int4",
+    "int8",
+    "new",
+    "nvfp4",
+    "pruned",
+    "ver",
+    "version"
+  ]
+}

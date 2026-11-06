@@ -4,24 +4,29 @@ civitai titles carry slogans, release numbers, lists of the base models a model 
 rewrite them with each release ("Moody Krea 2 Mix (uncensored) V8 FREE! V8免费! Halloween SE is here!"). The name is
 settled once, when the model first comes into the library, and does not follow later renames; the user can change it.
 
-The local model cuts the name out of the title (SYSTEM, SCHEMA); an answer that adds a word the title does not have is
+The local model cuts the name out of the title (system(): catalog/prompt-names.txt; SCHEMA); an answer that adds a word the title does not have is
 not used (faithful). Without a local model, or until it has answered, `by_rules` does the few cuts that are safe: on
 296 real titles (2026-10-14) every rule that cut more also cut names ("BFS - Best Face Swap" to "BFS").
 
     names/<model id>.json   {"model_id", "from": the title it was made from, "name", "en", "zh", "by": "ai" | "rules", "at"}
 """
+import functools
 import re
 
+from . import catalog
+
 EMOJI = re.compile(r"[\U0001F000-\U0001FAFF☀-➿️‍✨⭐]")
-_BASES = (r"krea[\s-]?2|krea|anima(?:\s?base\s?v?\d*)?|flux(?:\.\d)?(?:\s?d)?|f1|pony(?:\s?xl)?|illustrious(?:\s?xl)?|ill|il|"
-          r"noob(?:ai)?|sdxl|sd\s?1\.5|sd|xl|z-?image(?:\s?turbo)?|zimageturbo|zit|zib|zid|chroma|qwen(?:[\s-]?image)?(?:[\s-]?2\.1)?|"
-          r"qw21|hidream|ideogram\s?4|minimax\s?h3|h3|hunyuan|wan")
-_BASE_LIST = re.compile(r"^\s*(?:ver\.?\s*)?(?:(?:%s)\s*(?:[/+&,]|\band\b)?\s*)+$" % _BASES, re.I)
 _BRACKETS = re.compile(r"[\(\[（【]([^\)\]）】]*)[\)\]）】]")
 
 
+@functools.lru_cache(maxsize=4)
+def _base_list(bases):
+    """A text that is only a list of base models; `bases` is the families catalog's title_base_pattern."""
+    return re.compile(r"^\s*(?:ver\.?\s*)?(?:(?:%s)\s*(?:[/+&,]|\band\b)?\s*)+$" % bases, re.I)
+
+
 def _only_bases(text):
-    return bool(text.strip()) and bool(_BASE_LIST.match(text))
+    return bool(text.strip()) and bool(_base_list(catalog.load("families")["title_base_pattern"]).match(text))
 
 
 def by_rules(title):
@@ -43,22 +48,16 @@ def by_rules(title):
     return text or str(title or "").strip()
 
 
-SYSTEM = """You give AI image-generation models (checkpoints, LoRAs and the like) the name a user knows them by, for a local model library. You get the title the author gives the model on civitai. Authors pack titles with things that are not the name and change them with each release. Answer with the model's own name, cut out of the title.
+def system():
+    """The local model's instructions for naming a model (catalog/prompt-names.txt)."""
+    return catalog.text("prompt-names")
 
-Cut out:
-- promotion and announcements: "FREE", "is here", "is now free", "Goes Ancient", "SALE", "NEW", "Updated", "Pending", "免费", "免费下载", "来了", "放出", "首发", exclamations;
-- release numbers of one version (V8, v2.0, V8SE, "V1 | V2") when the model is also known without them;
-- the base models it is made for, wherever they stand: in brackets, after "|", after " - ", after "for", or as a list joined by "/", "+", "&" or ",": Flux, Pony, PonyXL, SDXL, XL, IL, ILL, Illustrious, IllustriousXL, NoobAI, Noob, Anima, AnimaBaseV1, Krea 2, Krea2, Krea-2, Qwen Image 2.1, QW21, Z-Image, ZImageTurbo, ZIT, ZIB, ZID, Zimage, Chroma, SD, SD1.5, Ideogram 4, MiniMax H3, Hunyuan;
-- a leading "Civitai"; emoji and decorative symbols (✨ 【】); the words "LoRA", "Lora", "LORA", "Checkpoint", "Concept", "Concept >" when the name stands without them;
-- file-format notes in brackets: fp8, bf16, [2.9B/2B].
 
-Keep, exactly as written (same spelling, capitals and punctuation), everything else, including:
-- words that are part of a product's name: "WAI-illustrious-SDXL", "Pony Diffusion V6 XL", "Animagine XL V3.1", "CyberRealistic Z-Image Turbo", "Qwen Image 2.1 VAE", "Krea 2 Turbo" keep their numbers and base-model words, because that is what the product is called;
-- a creator's name that is part of the name ("Muse By Stable Yogi", "Joschek's Film Grain");
-- descriptive words that tell models apart ("Detail Slider", "(HD)", "(soft light)").
-If unsure, keep the word. Never translate, never add a word, never reorder words.
+def __getattr__(name):
+    if name == "SYSTEM":
+        return system()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
-The title may give the name in several languages (English, Chinese, Japanese), often joined by "/" or "|". "name" holds every language that remains, in the title's order, joined by " / ". "en" is the English (Latin-letter) part alone and "zh" the Chinese part alone, only when "name" has both; otherwise null. Japanese is not Chinese: text with kana (ひらがな, カタカナ) goes in neither "en" nor "zh"."""
 
 _STR_OR_NULL = {"anyOf": [{"type": "string"}, {"type": "null"}]}
 SCHEMA = {"type": "object", "properties": {"name": {"type": "string"}, "en": _STR_OR_NULL, "zh": _STR_OR_NULL},
@@ -116,14 +115,10 @@ def version_name(name, base_model):
 
 
 def _base_words(base_model):
-    """How version names write a base model: civitai's "Krea 2" is also "Krea2", "K2", "KR2"."""
-    b = str(base_model or "").lower()
-    table = (("krea", ["Krea 2", "Krea2", "Krea-2", "KR2", "K2"]), ("anima", ["Anima"]), ("illustrious", ["Illustrious", "IllustriousXL", "IL", "ILL"]),
-             ("pony", ["Pony", "PonyXL"]), ("noob", ["NoobAI", "Noob"]), ("flux", ["Flux", "F1"]), ("sdxl", ["SDXL", "XL"]),
-             ("sd 1.5", ["SD1.5", "SD 1.5", "SD15"]), ("zimage", ["ZIT", "Z-Image", "ZImage", "ZImageTurbo", "Zimage Turbo"]),
-             ("qwen", ["Qwen", "Qwen 2.1", "Qwen2.1", "QW21"]), ("chroma", ["Chroma"]))
-    key = b.replace(" ", "").replace("-", "")
-    for marker, words in table:
-        if marker.replace(" ", "") in key:
-            return words
+    """How version names write a base model: civitai's "Krea 2" is also "Krea2", "K2", "KR2" (the families catalog's
+    version_name_spellings; the first marker found in the base model wins)."""
+    key = str(base_model or "").lower().replace(" ", "").replace("-", "")
+    for marker, words in catalog.load("families")["version_name_spellings"]:
+        if marker.lower().replace(" ", "") in key:
+            return list(words)
     return []

@@ -3,13 +3,13 @@
 import { api } from './api.js';
 import { mountWindowButtons } from './desktop.js';
 import { h, clear, fill } from './dom.js';
-import { loadStrings, setLang, currentLang, t } from './i18n.js';
+import { loadStrings, setLang, currentLang, languages, textIn, t } from './i18n.js';
 import { openAbout } from './about.js';
 import { IntakeDrawer } from './intake.js';
 import { Library } from './library.js';
 import { renderInventory, stopInventory } from './inventory.js';
 import { renderSetup } from './setup.js';
-import { icon } from './ui.js';
+import { icon, setServerState } from './ui.js';
 
 const shell = document.getElementById('shell');
 const nav = document.getElementById('top-nav');
@@ -23,6 +23,7 @@ let previewLang = false;    // the settings page shows a language that is not sa
 
 async function loadState() {
   state = await api('GET', '/api/ui/state');
+  setServerState(state);
 }
 
 function route() {
@@ -50,10 +51,11 @@ function drawNav(view) {
       'aria-current': view === 'settings' ? 'page' : null }, icon('i-gear')));
   }
   items.push(h('button', { class: 'icon-btn', type: 'button', title: t('about.title'), 'aria-label': t('about.title'),
-    onclick: () => openAbout(state ? state.version : '') }, icon('i-info')));
-  const lang = (value, label) => h('button', { type: 'button', 'aria-pressed': String(currentLang() === value), lang: value,
-    onclick: () => changeLanguage(value) }, label);
-  items.push(h('div', { class: 'lang', role: 'group', 'aria-label': t('lib.language') }, lang('zh', '中'), lang('en', 'EN')));
+    onclick: () => openAbout(state) }, icon('i-info')));
+  // each language's button in its own language
+  const lang = (value) => h('button', { type: 'button', 'aria-pressed': String(currentLang() === value), lang: value,
+    onclick: () => changeLanguage(value) }, textIn(value, 'meta.lang_short'));
+  items.push(h('div', { class: 'lang', role: 'group', 'aria-label': t('lib.language') }, languages().map(lang)));
   const working = library && view === 'library' ? library.working : null;
   fill(nav, working, items);
 }

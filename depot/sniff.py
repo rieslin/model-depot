@@ -8,11 +8,12 @@ Illustrious, which the tensors cannot.
 .ckpt/.pt/.pth files are pickles: they are never opened here (unpickling runs code), so nothing is known about them
 until civitai recognises their fingerprint.
 """
+import hashlib
 import json
 import os
 import struct
 
-from . import training
+from . import catalog, training
 from .families import UNKNOWN
 
 MAX_HEADER_BYTES = 100 * 1024 * 1024    # the safetensors format's own limit
@@ -20,6 +21,9 @@ GGUF_PEEK_BYTES = 1024 * 1024
 # Goes up when what is kept from a header changes: a file whose kept header is older is read again at the next scan
 # (2: the training facts and the trigger words worked out from the training tags, 2026-10-03).
 HEADER_VERSION = 4
+# The mark of the catalog lists a header was read with is kept with it ("c"). Headers kept before marks were kept were
+# read with the lists whose mark this is.
+_UNMARKED = "adda6374"
 
 # Metadata worth keeping in the index (short values only).
 KEPT_METADATA = ("ss_base_model_version", "ss_sd_model_name", "ss_output_name", "ss_network_module", "ss_network_dim",
@@ -34,10 +38,28 @@ _CONTEXT_FAMILY = {768: "sd15", 1024: "sd2", 2048: "sdxl", 1280: "sdxl"}    # wi
 _CHECKPOINT_PARTS = ("first_stage_model.", "vae.", "cond_stage_model.", "conditioner.", "text_encoders.")
 _DIFFUSION_PREFIXES = ("model.diffusion_model.", "diffusion_model.", "net.", "")
 
-_GGUF_FAMILY = {"seedvr": "seedvr2", "flux": "flux", "sd1": "sd15", "sdxl": "sdxl", "sd3": "sd3", "lumina2": "lumina2",
-                "qwen_image": "qwen", "wan": "wan", "hyvid": "hunyuan_video", "hidream": "hidream",
-                "cosmos": "cosmos", "aura": "auraflow", "ltxv": "ltxv"}
-_GGUF_TEXT = ("t5", "t5encoder", "llama", "clip", "qwen2", "qwen2vl", "qwen3", "gemma", "gemma2", "gemma3", "umt5")
+_mark = [None, None]     # [the families catalog it was worked out from, the mark]
+
+
+def catalog_mark():
+    """A short mark of the families catalog's lists that sniff() reads (the GGUF architectures, the SDXL name hints)."""
+    data = catalog.load("families")
+    if _mark[0] is not data:
+        parts = [sorted(data["gguf_architectures"].items()), sorted(data["gguf_text_architectures"]),
+                 [[family, sorted(words)] for family, words in data["sdxl_name_hints"].items()]]
+        text = json.dumps(parts, separators=(",", ":"), ensure_ascii=True)
+        _mark[:] = [data, hashlib.sha256(text.encode("ascii")).hexdigest()[:8]]
+    return _mark[1]
+
+
+def outdated(header):
+    """Was this kept header read by an older sniff.py, which kept less, or with other catalog lists? Such a file's
+    header is read again (its fingerprint is not computed again)."""
+    if not isinstance(header, dict) or header.get("format") not in ("safetensors", "gguf"):
+        return False
+    if header["format"] == "safetensors" and (header.get("v") or 1) < HEADER_VERSION:
+        return True
+    return header.get("c", _UNMARKED) != catalog_mark()
 
 
 class SniffError(Exception):
@@ -71,12 +93,12 @@ def _shape(tensors, key):
 
 
 def _name_hint(text):
-    """pony / illustrious from a name. Only used between families that share the SDXL architecture."""
+    """pony / illustrious (the catalog's sdxl_name_hints, in order) from a name. Only used between families that
+    share the SDXL architecture."""
     low = str(text or "").lower()
-    if "pony" in low or "pdxl" in low:
-        return "pony"
-    if "illustrious" in low or "noob" in low or "ilxl" in low:
-        return "illustrious"
+    for family, words in catalog.load("families")["sdxl_name_hints"].items():
+        if any(w and w in low for w in words):
+            return family
     return None
 
 
@@ -349,6 +371,7 @@ def sniff(path, name=""):
             out = classify(metadata, tensors, name)
             out["format"] = "safetensors"
             out["v"] = HEADER_VERSION
+            out["c"] = catalog_mark()
             out["tensors"] = len(tensors)
             out["meta"] = {k: str(metadata[k])[:200] for k in KEPT_METADATA if metadata.get(k) not in (None, "")}
             if metadata.get("ss_tag_frequency"):
@@ -361,13 +384,15 @@ def sniff(path, name=""):
             if architecture is None:
                 return None
             low = architecture.lower()
-            if low in _GGUF_FAMILY:
-                content, family = "diffusion_model", _GGUF_FAMILY[low]
-            elif low in _GGUF_TEXT:
+            lists = catalog.load("families")
+            if low in lists["gguf_architectures"]:
+                content, family = "diffusion_model", lists["gguf_architectures"][low]
+            elif low in lists["gguf_text_architectures"]:
                 content, family = "text_encoder", UNKNOWN
             else:
                 content, family = "unknown", UNKNOWN
-            return {"format": "gguf", "content": content, "family": family, "meta": {"general.architecture": architecture}}
+            return {"format": "gguf", "content": content, "family": family, "meta": {"general.architecture": architecture},
+                    "c": catalog_mark()}
     except (OSError, SniffError):
         return None
     return None

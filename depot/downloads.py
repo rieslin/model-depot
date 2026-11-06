@@ -6,9 +6,9 @@ civitai's fingerprint, then handed to the library.
   kept. The fingerprint is computed while the file is written, so checking a big file costs nothing extra.
 - Pausing, a broken connection or stopping the program leaves the .part file; the next try asks civitai for a fresh
   address and continues from the end of the .part file (a byte-range request).
-- A broken connection, a busy or failing server, or an address that ran out is tried again after 10 s, 30 s, 90 s,
-  5 min and 10 min. A login the creator requires, a refused key, early access, a missing file, a full disk or a
-  fingerprint that does not match stop the download until someone retries it.
+- A broken connection, a busy or failing server, or an address that ran out is tried again after the waits the
+  advanced setting downloads.retry_delays lists. A login the creator requires, a refused key, early access, a missing
+  file, a full disk or a fingerprint that does not match stop the download until someone retries it.
 - Downloads run one after another: civitai is not asked for several files at once, and one file finishes sooner.
 - Only folders from the settings are written to (folders.check_destination), and an existing file is never replaced.
 - Deleting is limited to this module's own .part files (a cancelled download, or one whose fingerprint did not match).
@@ -26,19 +26,19 @@ import time
 
 import aiohttp
 
-from . import companions, families, folders, hfhub, intake as intake_mod, kinds, trash, version_info
-from .civitai import CivitaiError
+from . import advanced, companions, families, folders, hfhub, intake as intake_mod, kinds, trash, version_info
+from .civitai import USER_AGENT, CivitaiError, download_url, stream_timeout, version_url
 
 log = logging.getLogger("depot.downloads")
 
 READ_CHUNK = 1 << 20            # read from the network in pieces of this size
 WRITE_BLOCK = 8 << 20           # hand to the writing thread in blocks of this size
-SPACE_MARGIN = 256 << 20        # free space left on the disk after a download
-RETRY_DELAYS = (10.0, 30.0, 90.0, 300.0, 600.0)
 SAVE_EVERY = 2.0                # seconds between progress notes in the index
 EMIT_EVERY = 0.5                # seconds between progress events
 
-_TRANSIENT = {"network", "server", "rate_limited", "link_expired", "incomplete", "range_mismatch"}
+# failures that are tried again (downloads.retry_delays) before the download counts as failed
+TRANSIENT_ERRORS = frozenset({"network", "server", "rate_limited", "hf_server", "hf_rate_limited", "link_expired",
+                              "incomplete", "range_mismatch"})
 _CONTENT_RANGE_RE = re.compile(r"bytes\s+(?:(\d+)-(\d+)|\*)/(\d+|\*)", re.I)
 
 
@@ -47,7 +47,7 @@ class Failed(Exception):
         super().__init__(code)
         self.code = code
         self.detail = detail
-        self.transient = code in _TRANSIENT if transient is None else transient
+        self.transient = code in TRANSIENT_ERRORS if transient is None else transient
 
 
 class _Stopped(Exception):
@@ -134,13 +134,14 @@ class _Sink:
 
 
 class Downloads:
-    def __init__(self, cfg, index, library, intake, retry_delays=RETRY_DELAYS):
+    def __init__(self, cfg, index, library, intake, retry_delays=None):
+        """retry_delays: the waits before each retry; None reads downloads.retry_delays at each failure."""
         self.cfg = cfg
         self.db = index
         self.library = library
         self.intake = intake
         intake.queued_files = self.db.dl_active_files
-        self._retry_delays = tuple(retry_delays)
+        self._retry_delays = None if retry_delays is None else tuple(retry_delays)
         self._wake = None
         self._task = None
         self._pool = None
@@ -289,7 +290,7 @@ class Downloads:
         ctype = comfy_type or hfhub.guess_type(link["path"]) or hfhub.type_of_folder(self.cfg, dest_dir)
         path = folders.unique_path(dest_dir, name, self.db.dl_active_paths())
         download_id = self.db.dl_insert({
-            "state": "queued", "site": hfhub.SITE, "model_id": 0, "version_id": 0, "file_id": fid,
+            "state": "queued", "site": hfhub.site(), "model_id": 0, "version_id": 0, "file_id": fid,
             "title": name, "version_name": link["repo"], "model_type": None, "comfy_type": ctype,
             "family": families.UNKNOWN, "base_model": None, "file_name": link["name"],
             "dest_dir": dest_dir, "dest_name": os.path.basename(path),
@@ -380,7 +381,7 @@ class Downloads:
             "sha256": row["sha256"], "final_path": row["final_path"], "checked": bool(row["expected_sha256"]),
             "source": "hf" if row["url"] else "civitai",
             "civitai_url": row["url"].replace("/resolve/", "/blob/", 1) if row["url"] else
-                           "%s/models/%s?modelVersionId=%s" % (row["site"], row["model_id"], row["version_id"]),
+                           version_url(row["site"], row["model_id"], row["version_id"]),
             "cover": "/api/ui/intake/versions/%d/images/%d" % (row["version_id"], row["cover_index"])
                      if row["cover_index"] is not None else None,
             "cover_level": row["cover_level"],
@@ -481,8 +482,9 @@ class Downloads:
     def _fail(self, row, live, e):
         attempts = row["attempts"] + 1
         detail = str(e.detail or "")[:300]
-        if e.transient and attempts <= len(self._retry_delays):
-            delay = self._retry_delays[attempts - 1]
+        delays = self._retry_delays if self._retry_delays is not None else tuple(advanced.get("downloads.retry_delays"))
+        if e.transient and attempts <= len(delays):
+            delay = delays[attempts - 1]
             log.info("download %s interrupted (%s); trying again in %.0f s", row["id"], e.code, delay)
             self._set(row["id"], state="retrying", attempts=attempts, next_try_at=time.time() + delay, error=e.code,
                       error_detail=detail, bytes_done=live["done"])
@@ -527,7 +529,7 @@ class Downloads:
                     if total is None or sink.size < total:
                         await self._receive(download_id, resp, sink, live, total, dest_dir)
             else:
-                url = "%s/api/download/models/%d?fileId=%d" % (row["site"], row["version_id"], row["file_id"])
+                url = download_url(row["site"], row["version_id"], row["file_id"])
                 async with self.library.client().open_download(url, start=offset) as resp:
                     total = await self._begin(row, resp, sink, live)
                     if total is None or sink.size < total:
@@ -550,7 +552,8 @@ class Downloads:
         expected = row["expected_sha256"]
         if expected and digest != expected:
             _remove(sink.path)
-            raise Failed("hash_mismatch", "%s != %s" % (digest[:12], expected[:12]), transient=False)
+            raise Failed("hf_hash_mismatch" if row["url"] else "hash_mismatch", "%s != %s" % (digest[:12], expected[:12]),
+                         transient=False)
         dest = os.path.join(dest_dir, row["dest_name"])
         final = dest if not os.path.exists(dest) else folders.unique_path(dest_dir, row["dest_name"],
                                                                           self.db.dl_active_paths())
@@ -577,8 +580,8 @@ class Downloads:
 
         class _Open:
             async def __aenter__(self):
-                self.session = aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(
-                    total=None, sock_connect=20, sock_read=60), headers={"User-Agent": "ModelDepot"})
+                self.session = aiohttp.ClientSession(trust_env=False, timeout=stream_timeout(),
+                                                     headers={"User-Agent": USER_AGENT})
                 headers = {"Range": "bytes=%d-" % start} if start > 0 else {}
                 try:
                     self.resp = await self.session.get(url, headers=headers, proxy=outer.cfg.proxy())
@@ -593,10 +596,10 @@ class Downloads:
                 if status in (401, 403):
                     raise Failed("hf_login", str(status), transient=False)
                 if status == 404:
-                    raise Failed("not_found", url, transient=False)
+                    raise Failed("hf_not_found", url, transient=False)
                 if status == 429:
-                    raise Failed("rate_limited", "429")
-                raise Failed("server" if status >= 500 else "bad_request", str(status), transient=status >= 500)
+                    raise Failed("hf_rate_limited", "429")
+                raise Failed("hf_server" if status >= 500 else "hf_bad_request", str(status), transient=status >= 500)
 
             async def __aexit__(self, *exc):
                 self.resp.release()
@@ -657,7 +660,8 @@ class Downloads:
             free = shutil.disk_usage(dest_dir).free
         except OSError:
             free = None
-        if free is not None and need is not None and free < need + SPACE_MARGIN:
+        margin = int(advanced.get("downloads.space_margin_mb") * 1024 * 1024)
+        if free is not None and need is not None and free < need + margin:
             raise Failed("disk_full", "%d %d" % (need, free), transient=False)
         block = bytearray()
         broken = None

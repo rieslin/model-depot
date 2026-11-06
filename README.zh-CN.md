@@ -87,8 +87,21 @@ Model Depot 写入的全部内容都在一个数据文件夹中：默认为项�
 | `index.sqlite` | 索引，必要时由模型文件与资料重建 |
 | `cache/` | 作者示例图的小图与示例视频，可以删除 |
 | `logs/` | 日志 |
+| `catalog/` | 选用：本机自己的清单文件（见下文） |
 
 页面上未提供的设置在 `config.json` 中修改，修改后需重新启动：`server.host`、`server.port`（默认 8194）、`remote_access`、`hashing.workers`，以及 `prewarm`（预热：每次扫描结束后预先读取模型页与示例图，默认关闭）。
+
+### 高级设置与清单
+
+技术参数的默认值及其说明随程序发布，位于 `depot/advanced.json`，包括：网络超时与重试、本地模型使用显卡的门槛与超时、Hugging Face 的地址、大小限制、页面的刷新频率，以及模型库列出哪些类型的模型。若要在某台电脑上修改其中一项，在 `config.json` 的 `advanced` 中按同一分组写入该项，然后重新启动：
+
+```json
+"advanced": {"network": {"quick_total": 20}, "reader": {"vram_gb": 16}}
+```
+
+无法识别的项、类型不符或超出允许范围的值将被忽略。
+
+需要跟进外部变化的清单位于 `depot/catalog`，随程序发布：推荐的本地模型与 llama.cpp 的下载来源（`llm.json`），基础模型系列及 civitai 与作者的各种写法（`families.json`），ComfyUI 的模型类型、扩展名、采样器与调度器（`comfyui.json`），civitai 的类型名称（`civitai.json`），以及本地模型的指令（`prompt-notes.txt`、`prompt-names.txt`）。数据文件夹的 `catalog/` 中若有同名文件，则以其为准：`.json` 文件替换其中包含的顶层项，`.txt` 文件替换全文。
 
 ## 文档
 

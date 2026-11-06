@@ -7,11 +7,18 @@ several model types) because other programs put these names straight into ComfyU
 import os
 import stat
 
-from . import kinds, sidecar, sniff
+from . import catalog, kinds, sidecar, sniff
 
-_CONTENT_TYPE = {"checkpoint": "checkpoints", "diffusion_model": "diffusion_models", "lora": "loras", "vae": "vae",
-                 "text_encoder": "text_encoders", "embedding": "embeddings", "controlnet": "controlnet",
-                 "upscaler": "upscale_models", "model_patch": "model_patches"}
+
+def content_type(content):
+    """The ComfyUI type for what a file's header shows it is (sniff's "content"), or None."""
+    return catalog.load("comfyui")["content_types"].get(content)
+
+
+def __getattr__(name):
+    if name == "_CONTENT_TYPE":         # the earlier name, still read by other modules
+        return catalog.load("comfyui")["content_types"]
+    raise AttributeError(name)
 
 
 def _real_key(path):
@@ -77,13 +84,13 @@ def primary_type(types, header):
     folder is both checkpoints and diffusion_models) is sorted out by what each file's header says it is."""
     if len(types) == 1:
         return types[0]
-    prefer = _CONTENT_TYPE.get((header or {}).get("content"))
+    prefer = content_type((header or {}).get("content"))
     return prefer if prefer in types else types[0]
 
 
 def _header_outdated(header):
-    """Was this safetensors header kept by an older sniff.py, which kept less? Such a file's header is read again."""
-    return isinstance(header, dict) and header.get("format") == "safetensors" and (header.get("v") or 1) < sniff.HEADER_VERSION
+    """Was this header kept by an older sniff.py, or read with other catalog lists? Such a file's header is read again."""
+    return sniff.outdated(header)
 
 
 def scan(folders, known=None, should_stop=None):

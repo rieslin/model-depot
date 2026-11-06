@@ -2,8 +2,9 @@
 // network route. Nothing is saved until the button at the bottom is pressed.
 import { api } from './api.js';
 import { h, fill, formatBytes } from './dom.js';
-import { t } from './i18n.js';
+import { t, textIn, languages } from './i18n.js';
 import { pickPath } from './picker.js';
+import { pageSetting } from './ui.js';
 
 const SOURCE_KEYS = { builtin: 'setup.source_builtin', extra: 'setup.source_extra', output: 'setup.source_output', unlisted: 'setup.source_unlisted',
   manual: 'setup.source_manual', saved: 'setup.source_saved' };
@@ -53,8 +54,8 @@ export function renderSetup(root, ctx) {
     if (readerTimer) clearTimeout(readerTimer);
     readerTimer = null;
     if (!root.isConnected || !reader) return;
-    if (reader.install && INSTALLING.includes(reader.install.state)) readerTimer = setTimeout(loadReader, 1000);
-    else if (reader.mode === 'managed' && reader.ready) readerTimer = setTimeout(refreshStatus, 4000);
+    if (reader.install && INSTALLING.includes(reader.install.state)) readerTimer = setTimeout(loadReader, pageSetting('setup_install_ms'));
+    else if (reader.mode === 'managed' && reader.ready) readerTimer = setTimeout(refreshStatus, pageSetting('setup_status_ms'));
   }
 
   async function loadReader() {
@@ -199,7 +200,7 @@ export function renderSetup(root, ctx) {
         network: { mode: form.netMode, proxy: form.proxy },
         reader: {
           mode: form.readerMode,
-          managed: { server: form.readerServer, model_file: form.readerModel, context: Number(form.readerContext) || 16384,
+          managed: { server: form.readerServer, model_file: form.readerModel, context: Number(form.readerContext),
             args: form.readerArgs },
           endpoint: { url: form.endpointUrl, model: form.endpointModel, key: form.endpointKey },
         },
@@ -328,6 +329,7 @@ export function renderSetup(root, ctx) {
     const hw = reader.hardware || {};
     const gpu = (hw.gpus || [])[0];
     const ram = hw.ram_mb ? t('setup.reader_ram', { gb: gb(hw.ram_mb) }) : '';
+    if (hw.assumed_vram_mb) return h('p', null, t('setup.reader_gpu_assumed', { gb: gb(hw.assumed_vram_mb) }) + ram);
     return h('p', null, gpu ? t('setup.reader_gpu', { name: gpu.name, gb: gb(gpu.vram_mb) }) + ram : t('setup.reader_no_gpu') + ram);
   }
 
@@ -346,7 +348,7 @@ export function renderSetup(root, ctx) {
   }
 
   function idleText(seconds) {
-    const s = Number(seconds) || 60;
+    const s = Number(seconds);
     return s % 60 === 0 ? t('setup.idle_min', { n: s / 60 }) : t('setup.idle_sec', { n: s });
   }
 
@@ -418,20 +420,21 @@ export function renderSetup(root, ctx) {
         radio('reader', 'managed', form.readerMode, t('setup.reader_managed'), (v) => { form.readerMode = v; }),
         form.readerMode === 'managed' ? h('div', { class: 'indent' },
           h('div', { class: 'field' }, h('span', null, t('setup.reader_server')),
-            h('input', { type: 'text', value: form.readerServer, placeholder: 'llama-server.exe', oninput: (e) => { form.readerServer = e.target.value; } }),
+            h('input', { type: 'text', value: form.readerServer, placeholder: t('setup.reader_server_placeholder'), oninput: (e) => { form.readerServer = e.target.value; } }),
             h('button', { onclick: async () => { const p = await pickPath({ start: form.readerServer, files: true }); if (p) { form.readerServer = p; draw(); } } }, t('common.browse'))),
           h('div', { class: 'field' }, h('span', null, t('setup.reader_model_file')),
-            h('input', { type: 'text', value: form.readerModel, placeholder: '*.gguf', oninput: (e) => { form.readerModel = e.target.value; } }),
+            h('input', { type: 'text', value: form.readerModel, placeholder: t('setup.reader_model_placeholder'), oninput: (e) => { form.readerModel = e.target.value; } }),
             h('button', { onclick: async () => { const p = await pickPath({ start: form.readerModel, files: true }); if (p) { form.readerModel = p; draw(); } } }, t('common.browse'))),
           h('div', { class: 'field' }, h('span', null, t('setup.reader_context')),
-            h('input', { type: 'number', min: 2048, max: 131072, step: 1024, value: form.readerContext, oninput: (e) => { form.readerContext = e.target.value; } })),
+            h('input', { type: 'number', min: ctx.state.limits.context[0], max: ctx.state.limits.context[1], step: 1024,
+              value: form.readerContext, oninput: (e) => { form.readerContext = e.target.value; } })),
           h('div', { class: 'field' }, h('span', null, t('setup.reader_args')),
             h('input', { type: 'text', value: form.readerArgs, oninput: (e) => { form.readerArgs = e.target.value; } })),
           installBlock()) : null,
         radio('reader', 'endpoint', form.readerMode, t('setup.reader_endpoint'), (v) => { form.readerMode = v; }),
         form.readerMode === 'endpoint' ? h('div', { class: 'indent' },
           h('div', { class: 'field' }, h('span', null, t('setup.reader_url')),
-            h('input', { type: 'text', value: form.endpointUrl, placeholder: 'http://127.0.0.1:8080/v1', oninput: (e) => { form.endpointUrl = e.target.value; } })),
+            h('input', { type: 'text', value: form.endpointUrl, placeholder: t('setup.reader_url_placeholder'), oninput: (e) => { form.endpointUrl = e.target.value; } })),
           h('div', { class: 'field' }, h('span', null, t('setup.reader_model_name')),
             h('input', { type: 'text', value: form.endpointModel, oninput: (e) => { form.endpointModel = e.target.value; } }),
             h('button', { onclick: probe }, t('setup.check'))),
@@ -462,8 +465,7 @@ export function renderSetup(root, ctx) {
       h('h2', null, t('setup.language')),
       h('div', { class: 'field' },
         h('select', { onchange: (e) => { form.language = e.target.value; ctx.setLanguage(e.target.value); draw(); } },
-          h('option', { value: 'zh', selected: form.language === 'zh' }, '中文'),
-          h('option', { value: 'en', selected: form.language === 'en' }, 'English'))),
+          languages().map((lang) => h('option', { value: lang, selected: form.language === lang }, textIn(lang, 'meta.lang_name'))))),
 
       h('h2', null, t('setup.models')),
       h('p', null, t('setup.models_intro')),
@@ -513,7 +515,7 @@ export function renderSetup(root, ctx) {
         radio('net', 'direct', form.netMode, t('setup.net_direct'), (v) => { form.netMode = v; netTest = null; }),
         radio('net', 'proxy', form.netMode, t('setup.net_proxy'), (v) => { form.netMode = v; netTest = null; }),
         form.netMode === 'proxy' ? h('div', { class: 'field indent' },
-          h('input', { type: 'text', value: form.proxy, placeholder: 'http://127.0.0.1:7890',
+          h('input', { type: 'text', value: form.proxy, placeholder: t('setup.proxy_placeholder'),
             oninput: (e) => { form.proxy = e.target.value; } })) : null),
       h('div', { class: 'actions' }, h('button', { disabled: Boolean(netTest && netTest.busy), onclick: testNet }, t('setup.net_test'))),
       netResults(),

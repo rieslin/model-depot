@@ -20,7 +20,7 @@ $Silent = [bool]$NoPrompt
 
 # Can this Python run the program? Code 0: yes. 4: a package or the version is missing. Else: not a working Python.
 function Test-Python([string]$Exe) {
-    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe)) { return @{ Code = 1; Text = 'not found' } }
+    if (-not $Exe -or -not (Test-Path -LiteralPath $Exe)) { return @{ Code = 1; Text = (T 'detail_not_found') } }
     try {
         $out = (& $Exe $RunPy --check | Out-String).Trim()
         return @{ Code = $LASTEXITCODE; Text = $out }
@@ -63,13 +63,13 @@ function Get-InstalledPythons {
 function New-Environment([string]$BasePython) {
     $venvDir = Join-Path $Root '.venv'
     $p = Start-Process -FilePath $BasePython -ArgumentList @('-m', 'venv', "`"$venvDir`"") -Wait -PassThru -WindowStyle Hidden
-    if ($p.ExitCode -ne 0) { return "python -m venv: exit code $($p.ExitCode)" }
+    if ($p.ExitCode -ne 0) { return (T 'detail_venv_exit' $p.ExitCode) }
     $venvPython = Join-Path $venvDir 'Scripts\python.exe'
     $requirements = Join-Path $Root 'requirements.txt'
     $style = 'Normal'
     if ($Silent) { $style = 'Hidden' }
     $p = Start-Process -FilePath $venvPython -ArgumentList @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', "`"$requirements`"") -Wait -PassThru -WindowStyle $style
-    if ($p.ExitCode -ne 0) { return "pip install: exit code $($p.ExitCode)" }
+    if ($p.ExitCode -ne 0) { return (T 'detail_pip_exit' $p.ExitCode) }
     $check = Test-Python $venvPython
     if ($check.Code -ne 0) { return $check.Text }
     return $null
@@ -127,7 +127,7 @@ function Resolve-Python {
 
 if ($Setup) {
     $installed = @(Get-InstalledPythons)
-    if ($installed.Count -eq 0) { Show-Message (T 'setup_failed' 'no Python 3.10 or newer is installed'); exit 1 }
+    if ($installed.Count -eq 0) { Show-Message (T 'setup_failed' (T 'detail_no_python')); exit 1 }
     $problem = New-Environment $installed[0]
     if ($problem) { Show-Message (T 'setup_failed' $problem); exit 1 }
     Write-StartLog ("environment ready, made with " + $installed[0])

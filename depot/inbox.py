@@ -25,6 +25,7 @@ and size is taken to be there already, one of the same name and another size is 
 """
 import asyncio
 import ctypes
+import functools
 import logging
 import os
 import re
@@ -32,14 +33,22 @@ import shutil
 import sys
 import time
 
-from . import companions, families, folders, kinds, reader, scan, sidecar, sniff
+from . import catalog, companions, families, folders, kinds, llm_install, reader, scan, sidecar, sniff
 
 log = logging.getLogger("depot.inbox")
 
 CHUNK = 8 << 20
 
 
-_UPSCALER_NAME = re.compile(r"(^|[^a-z0-9])\d{1}x[-_ ]|esrgan|realesr|upscal|swinir|\bdat\b|span|compact", re.I)
+@functools.lru_cache(maxsize=4)
+def _compiled(pattern):
+    return re.compile(pattern, re.I)
+
+
+def _upscaler_name(name):
+    """Does the file name say it is an upscaler ("4x-UltraSharp.pth"; catalog "comfyui" upscaler_name_pattern)?"""
+    pattern = catalog.load("comfyui").get("upscaler_name_pattern")
+    return bool(pattern) and bool(_compiled(pattern).search(name))
 
 
 class InboxError(Exception):
@@ -85,7 +94,7 @@ class Inbox:
 
     def _target(self, header, path, size):
         """(comfy_type, family, kind) for a model file, or (None, ...) when it cannot be told."""
-        if not header and _UPSCALER_NAME.search(os.path.basename(path)) and \
+        if not header and _upscaler_name(os.path.basename(path)) and \
                 os.path.splitext(path)[1].lower() in (".pth", ".pt", ".bin"):
             # an old upscaler in pickle form, which has no header to read: its name says it ("4x-UltraSharp.pth")
             return "upscale_models", families.UNKNOWN, kinds.kind_of("upscale_models")
@@ -95,9 +104,9 @@ class Inbox:
         if header.get("format") == "gguf" and content in ("text_encoder", "unknown"):
             # by size or architecture a text encoder cannot be told from a chat model (Flux.2's text encoder is a 24B
             # Mistral, 14 GB and more as GGUF): only the reading models the program recommends count as one
-            if os.path.basename(path).lower() in {m["file"].lower() for m in reader.MODELS.values()}:
+            if os.path.basename(path).lower() in {m["file"].lower() for m in reader.models().values()}:
                 return "llm", families.UNKNOWN, "llm"
-        ctype = scan._CONTENT_TYPE.get(content)
+        ctype = catalog.load("comfyui")["content_types"].get(content)
         if not ctype:
             return None, family, None
         return ctype, family, kinds.kind_of(ctype)
@@ -115,7 +124,7 @@ class Inbox:
         """The folder a file of this type and base model goes to (made when it is moved). A file the companions list
         puts in a sub-folder (a prompt enhancer, by its exact size) goes there."""
         if comfy_type == "llm":
-            return os.path.join(self.cfg.reader_install_dir(), "models")
+            return llm_install.models_in(self.cfg.reader_install_dir())
         root = self._type_root(comfy_type)
         if root is None:
             return None
@@ -336,15 +345,14 @@ class Inbox:
 
     def _use_llm(self, path, hw):
         """A language model was moved in: read the authors' notes with it when no local model is set up yet and the
-        graphics card is large enough for the smallest recommended model."""
+        graphics card is large enough for the smallest recommended model, by the reader's own measure."""
         rd = self.cfg.data["reader"]
         if rd["mode"] == "managed" and os.path.isfile(rd["managed"]["model_file"]):
             return
         server = rd["managed"]["server"]
         if not server or not os.path.isfile(server):
             return
-        vram = max((g["vram_mb"] for g in hw.get("gpus") or []), default=0)
-        if vram < reader.MIN_VRAM_GB * 1024 * 0.9:
+        if reader.recommend(hw) is None:
             return
         if not self.cfg.update({"reader": {"mode": "managed", "managed": {"model_file": path}}}):
             self.cfg.save()

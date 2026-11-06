@@ -6,7 +6,8 @@ Hugging Face, into one folder; each file checked against the fingerprint its sit
     <folder>/llama.cpp/llama-server.exe      and the rest of the release, with NVIDIA's runtime beside it
     <folder>/models/<file>.gguf
 
-When both are in place the settings are switched to them (reader.mode "managed").
+When both are in place the settings are switched to them (reader.mode "managed"). Where they come from is the
+catalog "llm" (its runtime and models); the Hugging Face site is the advanced setting huggingface.site.
 """
 import asyncio
 import hashlib
@@ -17,18 +18,36 @@ import re
 import shutil
 import sys
 import time
+import urllib.parse
 import zipfile
 
 import aiohttp
 
-from . import reader
+from . import __version__, advanced, catalog, reader
 
 log = logging.getLogger("depot.llm_install")
 
-GITHUB_RELEASES = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10"
-HF_BASE = "https://huggingface.co"
 CHUNK = 1 << 20
-SPACE_MARGIN = 1 << 30          # left free on the disk after everything is in place
+
+# The local model's folder, laid out as the Windows setup lays it out (installer\setup\Engine.cs) and as the setup's
+# notes for other programs describe it (docs\安装包对接说明.md): a contract, so it stays here.
+RUNTIME_DIR = "llama.cpp"
+SERVER_EXE = "llama-server.exe"
+MODELS_DIR = "models"
+
+
+def server_in(folder):
+    """llama-server.exe in a local model's folder."""
+    return os.path.join(folder, RUNTIME_DIR, SERVER_EXE)
+
+
+def models_in(folder):
+    """The folder of the GGUF files in a local model's folder."""
+    return os.path.join(folder, MODELS_DIR)
+
+
+def _runtime_source():
+    return catalog.load("llm").get("runtime") or {}
 
 
 class InstallError(Exception):
@@ -41,21 +60,27 @@ class InstallError(Exception):
 
 
 def cuda_flavour(cuda_version):
-    """The llama.cpp build for the driver: CUDA 13 needs a driver that reports 13 or more."""
+    """The llama.cpp build for the driver (the catalog's cuda_builds, the first whose least CUDA version the driver
+    reaches): a CUDA 13 build needs a driver that reports 13 or more. None when no build fits."""
     try:
         major = int(str(cuda_version or "").split(".")[0])
     except ValueError:
         major = 0
-    return "13.4" if major >= 13 else "12.4"
+    for entry in _runtime_source().get("cuda_builds") or []:
+        least = entry.get("least_cuda", 0) if isinstance(entry, dict) else None
+        if isinstance(least, (int, float)) and major >= least and entry.get("build"):
+            return str(entry["build"])
+    return None
 
 
 def pick_release(releases, flavour):
     """(tag, server asset, runtime asset) from the newest release that has both Windows CUDA archives."""
+    source = _runtime_source()
     for release in releases if isinstance(releases, list) else []:
         assets = {a.get("name"): a for a in release.get("assets") or [] if isinstance(a, dict)}
         tag = release.get("tag_name") or ""
-        server = assets.get("llama-%s-bin-win-cuda-%s-x64.zip" % (tag, flavour))
-        runtime = assets.get("cudart-llama-bin-win-cuda-%s-x64.zip" % flavour)
+        server = assets.get(str(source.get("server_asset") or "").format(tag=tag, cuda=flavour))
+        runtime = assets.get(str(source.get("runtime_asset") or "").format(tag=tag, cuda=flavour))
         if server and runtime:
             return tag, server, runtime
     return None
@@ -68,11 +93,11 @@ def _digest(asset):
 
 
 class Installer:
-    def __init__(self, cfg, on_done, github=GITHUB_RELEASES, hf=HF_BASE):
+    def __init__(self, cfg, on_done, github=None, hf=None):
         self.cfg = cfg
         self.on_done = on_done          # called once the settings point at what was installed
-        self.github = github
-        self.hf = hf.rstrip("/")
+        self.github = github            # the release list, else the catalog's (the tests give stand-ins)
+        self.hf = hf.rstrip("/") if hf else None        # Hugging Face, else the advanced setting
         self.state = {"state": "idle"}
         self.proxy = None
         self._task = None
@@ -85,7 +110,7 @@ class Installer:
     def start(self, model_key, folder):
         if self.busy:
             raise InstallError("busy")
-        if model_key not in reader.MODELS:
+        if model_key not in reader.models():
             raise InstallError("not_found", model_key)
         self._cancel = False
         self.proxy = self.cfg.proxy()
@@ -104,11 +129,12 @@ class Installer:
     # ---- the steps ---------------------------------------------------------------------------------------------------
     async def _run(self, model_key, folder):
         try:
-            async with aiohttp.ClientSession(trust_env=False, timeout=aiohttp.ClientTimeout(total=None, sock_connect=30,
-                                                                                            sock_read=120),
-                                             headers={"User-Agent": "ModelDepot"}) as session:
+            timeout = aiohttp.ClientTimeout(total=None, sock_connect=advanced.get("downloads.install_connect"),
+                                            sock_read=advanced.get("downloads.install_read"))
+            async with aiohttp.ClientSession(trust_env=False, timeout=timeout,
+                                             headers={"User-Agent": "ModelDepot/" + __version__}) as session:
                 server = await self._runtime(session, folder)
-                model_file = await self._model(session, folder, reader.MODELS[model_key])
+                model_file = await self._model(session, folder, reader.models()[model_key])
             self.state.update(state="configuring", step=None)
             problems = self.cfg.update({"reader": {"mode": "managed",
                                                    "managed": {"server": server, "model_file": model_file}}})
@@ -131,15 +157,21 @@ class Installer:
 
     async def _runtime(self, session, folder):
         """llama.cpp's server, downloaded once. Returns the path of llama-server.exe."""
-        target = os.path.join(folder, "llama.cpp")
-        server = os.path.join(target, "llama-server.exe")
+        target = os.path.join(folder, RUNTIME_DIR)
+        server = server_in(folder)
         if os.path.isfile(server):
             return server
         if sys.platform != "win32":
             raise InstallError("unsupported", "llama.cpp is downloaded for Windows only; set its path by hand")
         self.state.update(state="downloading", step="runtime")
-        flavour = cuda_flavour(reader.detect_hardware().get("cuda"))
-        async with session.get(self.github, headers={"Accept": "application/vnd.github+json"}, proxy=self.proxy) as resp:
+        cuda = reader.detect_hardware().get("cuda")
+        flavour = cuda_flavour(cuda)
+        if flavour is None:
+            raise InstallError("no_release", "no CUDA build listed for a driver reporting CUDA %s" % cuda)
+        releases_url = self.github or _runtime_source().get("releases_url")
+        if not releases_url:
+            raise InstallError("no_release", "the catalog names no list of releases")
+        async with session.get(releases_url, headers={"Accept": "application/vnd.github+json"}, proxy=self.proxy) as resp:
             if resp.status != 200:
                 raise InstallError("no_release", "GitHub answered %s" % resp.status)
             releases = json.loads(await resp.text())
@@ -155,7 +187,7 @@ class Installer:
             await asyncio.get_running_loop().run_in_executor(None, _extract, archive, target)
             self.state.update(state="downloading")
         if not os.path.isfile(server):
-            raise InstallError("no_release", "llama-server.exe is not in %s" % tag)
+            raise InstallError("no_release", "%s is not in %s" % (SERVER_EXE, tag))
         with open(os.path.join(target, "release.txt"), "w", encoding="utf-8") as f:
             f.write("%s cuda-%s\n" % (tag, flavour))
         shutil.rmtree(os.path.join(folder, "downloads"), ignore_errors=True)
@@ -163,11 +195,13 @@ class Installer:
 
     async def _model(self, session, folder, model):
         """The GGUF file, downloaded once and checked. Returns its path."""
-        target = os.path.join(folder, "models", model["file"])
+        target = os.path.join(models_in(folder), model["file"])
         if os.path.isfile(target):
             return target
         self.state.update(state="downloading", step="model")
-        info_url = "%s/api/models/%s/tree/main" % (self.hf, model["repo"])
+        hf = self.hf or advanced.get("huggingface.site").rstrip("/")
+        revision = urllib.parse.quote(str(model.get("revision") or "main"), safe="")
+        info_url = "%s/api/models/%s/tree/%s" % (hf, model["repo"], revision)
         async with session.get(info_url, proxy=self.proxy) as resp:
             if resp.status != 200:
                 raise InstallError("not_found", "Hugging Face answered %s for %s" % (resp.status, model["repo"]))
@@ -178,7 +212,7 @@ class Installer:
         lfs = entry.get("lfs") if isinstance(entry.get("lfs"), dict) else {}
         size = lfs.get("size") or entry.get("size")
         sha = lfs.get("oid") if re.match(r"^[0-9a-f]{64}$", str(lfs.get("oid") or "")) else None
-        url = "%s/%s/resolve/main/%s" % (self.hf, model["repo"], model["file"])
+        url = "%s/%s/resolve/%s/%s" % (hf, model["repo"], revision, model["file"])
         await self._download(session, url, target, size, sha)
         return target
 
@@ -189,9 +223,10 @@ class Installer:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         have = os.path.getsize(part) if os.path.exists(part) else 0
         if size:
+            margin = int(advanced.get("downloads.install_margin_mb") * 1024 * 1024)   # left free once all is in place
             free = shutil.disk_usage(os.path.dirname(path)).free
-            if free < size - have + SPACE_MARGIN:
-                raise InstallError("disk_full", "%d needed, %d free" % (size - have + SPACE_MARGIN, free))
+            if free < size - have + margin:
+                raise InstallError("disk_full", "%d needed, %d free" % (size - have + margin, free))
         self.state.update(file=os.path.basename(path), bytes_done=have, bytes_total=size, speed=0)
         headers = {"Range": "bytes=%d-" % have} if have else {}
         async with session.get(url, headers=headers, proxy=self.proxy) as resp:

@@ -87,8 +87,21 @@ Everything Model Depot writes goes into one data folder: `data/` in the project,
 | `index.sqlite` | The index, rebuilt from the model files and the records when needed |
 | `cache/` | Small copies of the authors' example images and videos; safe to delete |
 | `logs/` | Logs |
+| `catalog/` | Optional: this computer's own versions of the catalog files (see below) |
 
 Settings the page does not show are edited in `config.json`, followed by a restart: `server.host`, `server.port` (default 8194), `remote_access`, `hashing.workers`, and `prewarm` (fetch model pages and example images ahead of time after each scan; off by default).
+
+### Advanced settings and catalogs
+
+Technical values ship with their defaults and a description each in `depot/advanced.json`: network time limits and retries, the local model's graphics-card thresholds and time limits, the Hugging Face address, size limits, how often the page refreshes, and which kinds of model the library lists. To change one on a computer, add it to `config.json` under `advanced`, in the same group, and restart:
+
+```json
+"advanced": {"network": {"quick_total": 20}, "reader": {"vram_gb": 16}}
+```
+
+Unknown keys and values of the wrong type or outside the allowed range are ignored.
+
+Lists that follow the outside world ship in `depot/catalog`: the recommended local models and where llama.cpp is downloaded from (`llm.json`), base-model families and the ways civitai and authors write them (`families.json`), ComfyUI's model types, extensions, samplers and schedulers (`comfyui.json`), civitai's type names (`civitai.json`), and the local model's instructions (`prompt-notes.txt`, `prompt-names.txt`). A file of the same name in the data folder's `catalog/` takes precedence: a `.json` file replaces the top-level keys it contains, a `.txt` file the whole text.
 
 ## Documentation
 

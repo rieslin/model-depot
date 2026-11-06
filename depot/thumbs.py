@@ -5,7 +5,7 @@ from PIL import Image, ImageOps
 
 MAX_WIDTH, MAX_HEIGHT = 512, 1024           # covers
 SAMPLE_WIDTH, SAMPLE_HEIGHT = 768, 1536     # the author's example images in the detail view
-_BACKDROP = (32, 32, 32)
+BACKDROP = (32, 32, 32)      # behind a transparent picture
 _LANCZOS = getattr(Image, "Resampling", Image).LANCZOS
 
 
@@ -17,7 +17,7 @@ def make_thumbnail(source, max_width, max_height):
         im = ImageOps.exif_transpose(im) or im
         if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
             rgba = im.convert("RGBA")
-            flat = Image.new("RGB", rgba.size, _BACKDROP)
+            flat = Image.new("RGB", rgba.size, BACKDROP)
             flat.paste(rgba, mask=rgba.split()[-1])
             im = flat
         else:

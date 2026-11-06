@@ -7,20 +7,37 @@ per character and base model). So a version counts as newer only when it has the
 and a later date. Versions of the same number and line are the same version in another precision: offered together as
 its files. Every other version published after the one here and not here is a new entry of the page, not a new version.
 """
+import functools
 import re
+
+from . import catalog
 
 _EMOJI = re.compile(r"[\U0001F000-\U0001FAFF☀-➿️‍]")
 # a version number: v8, V8.0, 2.1, ZIT-V1; "r1" right after it is a revision of that version (V6R1 comes after V6);
 # "se" marks a special edition (V8SE)
 _NUMBER = re.compile(r"(?<![a-z0-9.])v?(\d+(?:\.\d+)*)(?:r(\d+))?(se)?(?![0-9])", re.I)
-_PRECISION = re.compile(r"(?<![a-z0-9])(bf16|fp16|fp32|fp8|int8|int4|nvfp4|q[2-8](?:_k(?:_[sm])?)?|gguf)(?![a-z0-9])", re.I)
-# words that tell nothing about the line: precision and format, training method, filler
-_NOISE = {"bf16", "fp16", "fp32", "fp8", "e4m3fn", "int8", "int4", "nvfp4", "gguf", "convrot", "converted", "pruned",
-          "full", "dpo", "free", "new", "ver", "version", "edition", "experimental", "and"}
-# base models written into version names ("Ultramarines Krea2", "v1.0 anima"): the base model says it already
-_BASE_WORDS = {"krea2", "krea", "anima", "flux", "pony", "illustrious", "illustriou", "ill", "il", "noob", "noobai",
-               "sdxl", "xl", "sd", "zimage", "zimageturbo", "zit", "chroma", "qwen", "qwen2", "ltx", "minimax", "h3",
-               "ideogram4", "k2", "kr2"}
+_ignored = [None, None, None]
+
+
+def _ignored_words():
+    """Words that tell nothing about the line: precision and format, training method, filler (civitai's
+    version_noise_words), and base models written into version names ("Ultramarines Krea2", "v1.0 anima"; families'
+    version_name_words), which the base model says already."""
+    noise = catalog.load("civitai")["version_noise_words"]
+    bases = catalog.load("families")["version_name_words"]
+    if _ignored[0] is not noise or _ignored[1] is not bases:
+        _ignored[:] = [noise, bases, frozenset(str(w).lower() for w in list(noise) + list(bases))]
+    return _ignored[2]
+
+
+@functools.lru_cache(maxsize=4)
+def _compiled(pattern):
+    return re.compile(pattern, re.I)
+
+
+def _precision_re():
+    """How version names write a precision or format (civitai's version_precision_pattern)."""
+    return _compiled(catalog.load("civitai")["version_precision_pattern"])
 
 
 def parse(name):
@@ -35,13 +52,14 @@ def parse(name):
             number = number + (0,) * (3 - len(number)) + (int(m.group(2)),)    # V6R1: after V6 and V6.0.0
     special = bool(m and m.group(3))
     rest = _NUMBER.sub(" ", text)
-    words = {w for w in rest.split() if re.fullmatch(r"[a-z]{2,}", w) and w not in _NOISE and w not in _BASE_WORDS}
+    ignored = _ignored_words()
+    words = {w for w in rest.split() if re.fullmatch(r"[a-z]{2,}", w) and w not in ignored}
     return number, special, frozenset(words)
 
 
 def precision(name):
     """The precisions a version name states, lower case, sorted: ["fp8"], ["bf16", "fp8"], or []."""
-    return sorted({p.lower() for p in _PRECISION.findall(str(name or ""))})
+    return sorted({p.lower() for p in _precision_re().findall(str(name or ""))})
 
 
 def short_label(name):

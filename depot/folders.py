@@ -14,17 +14,8 @@ import os
 import re
 import uuid
 
-from . import kinds
-
-# civitai's model types and the ComfyUI folder type their files go to
-_TYPE_BY_MODEL = {
-    "checkpoint": "checkpoints", "lora": "loras", "locon": "loras", "dora": "loras", "lycoris": "loras",
-    "textualinversion": "embeddings", "vae": "vae", "upscaler": "upscale_models", "controlnet": "controlnet",
-    "hypernetwork": "hypernetworks",
-}
-# A file that is a part, not the model: where that part goes whatever page offers it
-_TYPE_BY_FILE = {"vae": "vae", "text encoder": "text_encoders", "textencoder": "text_encoders",
-                 "diffusion model": "diffusion_models", "unet": "diffusion_models", "negative": "embeddings"}
+from . import catalog, kinds
+from .families import UNKNOWN
 
 _RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
 _BAD_CHARS_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -34,11 +25,14 @@ _MAX_FOLDERS = 600
 
 
 def target_type(model_type, file_type=None):
-    """The ComfyUI folder type for a civitai file, or None when the program does not know where it belongs."""
-    by_file = _TYPE_BY_FILE.get(str(file_type or "").strip().lower())
+    """The ComfyUI folder type for a civitai file, or None when the program does not know where it belongs. A file that
+    is a part, not the model, goes where that part goes whatever page offers it (civitai catalog: type_by_file); the
+    model's own files by the page's type (type_by_model)."""
+    names = catalog.load("civitai")
+    by_file = names["type_by_file"].get(str(file_type or "").strip().lower())
     if by_file:
         return by_file
-    return _TYPE_BY_MODEL.get(str(model_type or "").strip().lower())
+    return names["type_by_model"].get(str(model_type or "").strip().lower())
 
 
 def safe_name(name, fallback="model.safetensors"):
@@ -164,7 +158,7 @@ def suggest(cfg, comfy_type, family, family_words, dir_counts, kind_counts, reme
     if remembered and os.path.isdir(remembered) and under_own(remembered):
         return {"path": os.path.normpath(remembered), "reason": "last", "n": 0, "total": 0}
     same = {p: n for p, n in dir_counts.items() if n and under_own(p)}
-    if same and family and family != "unknown":
+    if same and family and family != UNKNOWN:
         path = max(same, key=lambda p: (same[p], -len(p)))
         return {"path": path, "reason": "library", "n": same[path], "total": sum(same.values())}
     words = {w.lower() for w in family_words if w}
@@ -211,12 +205,12 @@ class Remembered:
         return self._data
 
     def get(self, comfy_type, family):
-        value = self._load().get("%s|%s" % (comfy_type, family or "unknown"))
+        value = self._load().get("%s|%s" % (comfy_type, family or UNKNOWN))
         return value if isinstance(value, str) else None
 
     def put(self, comfy_type, family, folder):
         data = self._load()
-        data["%s|%s" % (comfy_type, family or "unknown")] = folder
+        data["%s|%s" % (comfy_type, family or UNKNOWN)] = folder
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = "%s.%s.tmp" % (self.path, uuid.uuid4().hex[:8])
         with open(tmp, "w", encoding="utf-8") as f:

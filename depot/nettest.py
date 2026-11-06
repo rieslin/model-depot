@@ -17,11 +17,17 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
-from . import __version__
+from . import advanced
+from .civitai import USER_AGENT
 
 STEPS = ("resolve", "connect", "tls", "answer")
-_STEP_SECONDS = 6
-_TIMEOUT = aiohttp.ClientTimeout(total=15, sock_connect=6, sock_read=10)
+
+
+def _timeout():
+    """The time limits of the handshake and answer steps (network.test_*)."""
+    get = advanced.get
+    return aiohttp.ClientTimeout(total=get("network.test_total"), sock_connect=get("network.test_connect"),
+                                 sock_read=get("network.test_read"))
 
 
 def _ms(start):
@@ -65,17 +71,18 @@ async def check_site(site, proxy=None):
     else:
         host, port = parts.hostname or "", parts.port or (443 if secure else 80)
     loop = asyncio.get_running_loop()
+    step_seconds = advanced.get("network.test_step")
 
     start = time.monotonic()
     try:
-        await asyncio.wait_for(loop.getaddrinfo(host, port, type=socket.SOCK_STREAM), _STEP_SECONDS)
+        await asyncio.wait_for(loop.getaddrinfo(host, port, type=socket.SOCK_STREAM), step_seconds)
     except (OSError, asyncio.TimeoutError):
         return report.fail("resolve", "proxy_name" if proxy else "name", start)
     report.ok("resolve", start)
 
     start = time.monotonic()
     try:
-        _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), _STEP_SECONDS)
+        _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), step_seconds)
         writer.close()
     except asyncio.TimeoutError:
         return report.fail("connect", "proxy_connect_timeout" if proxy else "connect_timeout", start)
@@ -93,8 +100,8 @@ async def check_site(site, proxy=None):
     trace.on_connection_create_end.append(on_connected)
     start = time.monotonic()
     try:
-        async with aiohttp.ClientSession(trust_env=False, timeout=_TIMEOUT, trace_configs=[trace],
-                                         headers={"User-Agent": "ModelDepot/%s" % __version__}) as session:
+        async with aiohttp.ClientSession(trust_env=False, timeout=_timeout(), trace_configs=[trace],
+                                         headers={"User-Agent": USER_AGENT}) as session:
             async with session.get(site.rstrip("/") + "/api/v1/models?limit=1", proxy=proxy,
                                    headers={"Accept": "application/json"}, allow_redirects=False) as resp:
                 body = await resp.content.read(256 * 1024)

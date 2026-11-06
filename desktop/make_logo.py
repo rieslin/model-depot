@@ -3,8 +3,10 @@ top bar. Two versions, for GitHub's light and dark themes, drawn at twice their 
 
     python desktop/make_logo.py            docs/images/logo-light.png and docs/images/logo-dark.png
 
-The icon, the fonts and the browser come from make_icon.py.
+The icon, the fonts and the browser come from make_icon.py; the tagline is the page's own (lib.tagline in
+depot/strings.py, English).
 """
+import html
 import os
 import sys
 import tempfile
@@ -13,6 +15,11 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_icon import DESIGN, INK, ON_BLOCK, RED, ROOT, font_face, shoot, svg     # noqa: E402
+
+sys.path.insert(0, ROOT)
+from depot.strings import LANGS, STRINGS     # noqa: E402
+
+TAGLINE = STRINGS["lib.tagline"][LANGS.index("en")]
 
 OUT = os.path.join(ROOT, "docs", "images")
 SCALE = 2
@@ -34,7 +41,7 @@ def page(word, tag):
            ".tag{margin-top:%dpx;font:600 %dpx/1 Anaheim;letter-spacing:0.36em;text-transform:uppercase;color:%s;white-space:nowrap}"
            % (22 * s, 8 * s, 50 * s, word, RED, 14 * s, 15 * s, tag))
     body = ('<div class="lockup">%s<div><div class="mark">MODEL DEP<span class="o">O</span>T</div>'
-            '<div class="tag">Local Model Archive</div></div></div>' % svg(DESIGN, ICON * s))
+            '<div class="tag">%s</div></div></div>' % (svg(DESIGN, ICON * s), html.escape(TAGLINE)))
     return "<!doctype html><html><head><style>%s</style></head><body>%s</body></html>" % (css, body)
 
 

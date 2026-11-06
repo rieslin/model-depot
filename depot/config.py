@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 
-from . import netroute
+from . import advanced, netroute
 
 SCHEMA = 2      # 2 (2026-10-23): "system" became the network default; a saved "direct" without a proxy moves to it
 DEFAULT_HOST = "127.0.0.1"
@@ -19,7 +19,10 @@ LANGS = ("zh", "en")
 TOKEN_SOURCES = ("none", "value", "env_file")
 NETWORK_MODES = ("system", "direct", "proxy")   # system: the proxy Windows is set to use, read at each request
 READER_MODES = ("rules", "managed", "endpoint")
+DEFAULT_ENV_VAR = "CIVITAI_TOKEN"     # the variable a .env file is read for, unless the settings name another
 
+MAX_HASH_WORKERS = 8                    # threads; library.py sizes its pool by it
+CONTEXT_RANGE = (2048, 131072)          # tokens accepted for a managed local model's context
 _TYPE_RE = re.compile(r'^[^\\/:*?"<>|\x00-\x1f]{1,64}$')   # a ComfyUI type name, or a folder's own name
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _URL_RE = re.compile(r"^https?://[^\s/]+", re.I)
@@ -38,7 +41,7 @@ def defaults():
         # ComfyUI itself. Order matters within a type: it is ComfyUI's search order.
         "folders": [],
         "civitai": {
-            "token_source": "none", "token": "", "env_file": "", "env_var": "CIVITAI_TOKEN",
+            "token_source": "none", "token": "", "env_file": "", "env_var": DEFAULT_ENV_VAR,
             "sites": list(CIVITAI_SITES),
             "request_interval": 2.0,   # seconds between API requests
             "image_interval": 1.0,     # seconds between cover downloads
@@ -71,6 +74,9 @@ def defaults():
         # `dirs` are kept; `once` (the setup's own models folder) are dropped when nothing is left to sort in them;
         # `watch` are folders that hold other things too (the browser's downloads): only their own model files count.
         "inbox": {"dirs": [], "once": [], "watch": []},
+        # Technical values this computer sets apart from the shipped ones (advanced.py, advanced.json): only the keys
+        # it changes, e.g. {"network": {"quick_total": 20}}.
+        "advanced": {},
     }
 
 
@@ -143,7 +149,8 @@ def _abs_path(value):
 def normalize(raw):
     """(settings, problems). Settings always has every key; problems lists (field, code) for what was wrong."""
     raw = raw if isinstance(raw, dict) else {}
-    cfg = _merge(defaults(), raw)
+    base = defaults()
+    cfg = _merge(base, raw)
     problems = []
     old_net = raw.get("network") if isinstance(raw.get("network"), dict) else {}
     if int(raw.get("schema") or 1) < 2 and old_net.get("mode") == "direct" and not str(old_net.get("proxy") or "").strip():
@@ -197,10 +204,10 @@ def normalize(raw):
 
     civ = cfg["civitai"] if isinstance(cfg.get("civitai"), dict) else {}
     source = civ.get("token_source") if civ.get("token_source") in TOKEN_SOURCES else "none"
-    env_var = str(civ.get("env_var") or "CIVITAI_TOKEN").strip()
+    env_var = str(civ.get("env_var") or DEFAULT_ENV_VAR).strip()
     if not _ENV_NAME_RE.match(env_var):
         problems.append(("civitai.env_var", "env_var_bad"))
-        env_var = "CIVITAI_TOKEN"
+        env_var = DEFAULT_ENV_VAR
     sites = [str(s).strip().rstrip("/") for s in (civ.get("sites") or []) if _URL_RE.match(str(s).strip())]
 
     def seconds(value, default):
@@ -215,8 +222,8 @@ def normalize(raw):
         "env_file": _abs_path(civ.get("env_file")),
         "env_var": env_var,
         "sites": sites or list(CIVITAI_SITES),
-        "request_interval": seconds(civ.get("request_interval"), 2.0),
-        "image_interval": seconds(civ.get("image_interval"), 1.0),
+        "request_interval": seconds(civ.get("request_interval"), base["civitai"]["request_interval"]),
+        "image_interval": seconds(civ.get("image_interval"), base["civitai"]["image_interval"]),
     }
     if source == "env_file" and not cfg["civitai"]["env_file"]:
         problems.append(("civitai.env_file", "env_file_missing"))
@@ -238,23 +245,23 @@ def normalize(raw):
 
     hashing = cfg["hashing"] if isinstance(cfg.get("hashing"), dict) else {}
     try:
-        workers = int(hashing.get("workers") or 2)
+        workers = int(hashing.get("workers") or base["hashing"]["workers"])
     except (TypeError, ValueError):
-        workers = 2
-    cfg["hashing"] = {"workers": min(8, max(1, workers))}
+        workers = base["hashing"]["workers"]
+    cfg["hashing"] = {"workers": min(MAX_HASH_WORKERS, max(1, workers))}
 
     reader = cfg["reader"] if isinstance(cfg.get("reader"), dict) else {}
     mode = reader.get("mode") if reader.get("mode") in READER_MODES else "rules"
     managed = reader.get("managed") if isinstance(reader.get("managed"), dict) else {}
     endpoint = reader.get("endpoint") if isinstance(reader.get("endpoint"), dict) else {}
     try:
-        context = min(131072, max(2048, int(managed.get("context") or 16384)))
+        context = min(CONTEXT_RANGE[1], max(CONTEXT_RANGE[0], int(managed.get("context") or base["reader"]["managed"]["context"])))
     except (TypeError, ValueError):
-        context = 16384
+        context = base["reader"]["managed"]["context"]
     try:
-        idle_stop = min(3600, max(30, int(reader.get("idle_stop") or 60)))
+        idle_stop = min(3600, max(30, int(reader.get("idle_stop") or base["reader"]["idle_stop"])))
     except (TypeError, ValueError):
-        idle_stop = 60
+        idle_stop = base["reader"]["idle_stop"]
     cfg["reader"] = {
         "mode": mode,
         "managed": {"server": _abs_path(managed.get("server")), "model_file": _abs_path(managed.get("model_file")),
@@ -275,9 +282,9 @@ def normalize(raw):
 
     warm = cfg["prewarm"] if isinstance(cfg.get("prewarm"), dict) else {}
     try:
-        samples = min(20, max(0, int(warm.get("samples") if warm.get("samples") is not None else 6)))
+        samples = min(20, max(0, int(warm.get("samples") if warm.get("samples") is not None else base["prewarm"]["samples"])))
     except (TypeError, ValueError):
-        samples = 6
+        samples = base["prewarm"]["samples"]
     cfg["prewarm"] = {"enabled": warm.get("enabled") is True, "samples": samples}
 
     inbox = cfg["inbox"] if isinstance(cfg.get("inbox"), dict) else {}
@@ -293,6 +300,9 @@ def normalize(raw):
 
     cfg["inbox"] = {"dirs": folder_list(inbox.get("dirs")), "once": folder_list(inbox.get("once")),
                     "watch": folder_list(inbox.get("watch"))}
+
+    cfg["advanced"], bad = advanced.clean(raw.get("advanced") if isinstance(raw.get("advanced"), dict) else {})
+    problems += bad
     return cfg, problems
 
 
@@ -302,6 +312,7 @@ class Config:
         self.data = defaults()
         self.exists = False          # is there a settings file at all
         self.load_problem = None     # set when the file was there but could not be read
+        advanced.use({})
 
     @classmethod
     def load(cls, paths):
@@ -316,6 +327,7 @@ class Config:
             return self
         self.exists = True
         self.data, _problems = normalize(raw)
+        advanced.use(self.data["advanced"])
         return self
 
     def save(self):
@@ -399,7 +411,14 @@ class Config:
         endpoint = reader.get("endpoint") if isinstance(reader, dict) else None
         if isinstance(endpoint, dict) and not endpoint.get("key"):
             endpoint.pop("key", None)
-        merged, problems = normalize(_merge(self.data, changes))
+        if isinstance(changes.get("advanced"), dict):
+            # the advanced settings are replaced whole, so that a key left out goes back to its shipped value
+            base = copy.deepcopy(self.data)
+            base["advanced"] = {}
+        else:
+            base = self.data
+        merged, problems = normalize(_merge(base, changes))
         if not problems:
             self.data = merged
+            advanced.use(self.data["advanced"])
         return problems

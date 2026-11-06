@@ -27,14 +27,17 @@ import os
 import time
 import uuid
 
-from . import cards, companions, families, folders, hashing, image_meta, kinds, llm_install, reader as reader_mod, scan
+from . import advanced, cards, companions, families, folders, hashing, image_meta, kinds, llm_install
+from . import reader as reader_mod, scan
 from . import names as names_mod, sidecar, thumbs, training, trash, updates, version_info, videos
-from .civitai import BATCH_SIZE, CivitaiClient, CivitaiError
+from .civitai import BATCH_SIZE, CivitaiClient, CivitaiError, version_url
+from .config import MAX_HASH_WORKERS
 from .store import Store, is_sha256, write_atomic
 
 log = logging.getLogger("depot.library")
 
-_CIVITAI_BACKOFF = (30.0, 120.0, 600.0)     # waits after a failed round before trying again
+_READER_BUSY = ("queued", "reading", "waiting_gpu")     # the reader's states while a reading is in hand
+MAX_INFO = 200                  # characters of a name or base model the user types in
 NO_CHECK_KINDS = ("upscaler", "text_encoder", "other")     # unknown to civitai: "no check needed", not "unidentified"
 
 
@@ -66,14 +69,16 @@ def resource_keys(params):
 
 
 class Library:
-    def __init__(self, config, index, client_factory=None, civitai_backoff=_CIVITAI_BACKOFF, reader_options=None):
+    def __init__(self, config, index, client_factory=None, civitai_backoff=None, reader_options=None):
+        """civitai_backoff: the waits after failed rounds of checking fingerprints; None reads
+        civitai.lookup_backoff when it is needed."""
         self.cfg = config
         self.db = index
         self.store = Store(config.library_dir())
         self.control = hashing.Control()
         self._client_factory = client_factory or self._default_client
         self._client = None
-        self._civitai_backoff = tuple(civitai_backoff)
+        self._civitai_backoff = None if civitai_backoff is None else tuple(civitai_backoff)
         self._stopping = False
         self._tasks = []
         self._scan_task = None
@@ -138,7 +143,8 @@ class Library:
     async def start(self):
         self._wake = {name: asyncio.Event() for name in ("hash", "civitai", "covers", "cards", "prewarm", "reach")}
         # Threads start only as they are needed; how many files are read at once is decided in _hash_loop.
-        self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="depot-hash")
+        self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_HASH_WORKERS,
+                                                           thread_name_prefix="depot-hash")
         self._scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="depot-scan")
         self.names = self.store.load_names()
         self._adopt_all_records()
@@ -558,10 +564,13 @@ class Library:
             if complete:
                 failures = 0
                 continue
-            if failures >= len(self._civitai_backoff):
+            backoff = self._civitai_backoff
+            if backoff is None:
+                backoff = tuple(advanced.get("civitai.lookup_backoff"))
+            if failures >= len(backoff):
                 log.warning("civitai could not be asked; giving up until the next scan or a manual retry")
                 break
-            delay = self._civitai_backoff[failures]
+            delay = backoff[failures]
             failures += 1
             state["waiting_until"] = time.time() + delay
             await asyncio.sleep(delay)
@@ -1025,7 +1034,7 @@ class Library:
             if value is not None and not isinstance(value, str):
                 raise ValueError(field)
             text = " ".join((value or "").split())
-            if len(text) > 200:
+            if len(text) > MAX_INFO:
                 raise ValueError(field)
             if text:
                 user[field] = text
@@ -1146,7 +1155,7 @@ class Library:
         by = (ev.get("reader") or {}).get("by") or "rules"
         ready, reason, _label = self.reader.availability()
         state = self.reader.state_of(sha) or {}
-        busy = state.get("state") in ("queued", "reading", "waiting_gpu")
+        busy = state.get("state") in _READER_BUSY
         model = reader_mod.display_name((ev.get("reader") or {}).get("model")) if by == "ai" else None
         inputs = None if by == "ai" else self._reader_inputs(sha)
         # notes the local model would be given text of: an empty "<p> </p>" counts for the rules' record, and the
@@ -1175,7 +1184,7 @@ class Library:
         if not cards.card_kind(kind):
             return False
         view = (self.card(sha, kind) or {}).get("reader") or {}
-        if view.get("state") in ("queued", "reading", "waiting_gpu"):
+        if view.get("state") in _READER_BUSY:
             return True
         if not view.get("can_read") and not (retry and view.get("can_retry")):
             return False
@@ -1307,7 +1316,7 @@ class Library:
                 except CivitaiError as e:
                     state["failed"] += 1
                     state["last_error"] = e.code
-                    if e.code in ("network", "rate_limited", "server", "auth"):
+                    if e.code in self._CIVITAI_DOWN:
                         log.info("warming up stopped: civitai answered %s; the next scan carries on", e.code)
                         return
                 except (LookupError, OSError, ValueError) as e:    # one odd model or picture: the next one
@@ -1341,8 +1350,7 @@ class Library:
         if not cards.card_kind(kind):
             return False
         view = (self.card(sha, kind) or {}).get("reader") or {}
-        if not view.get("ready") or view.get("by") == "ai" or view.get("state") in ("queued", "reading", "waiting_gpu") \
-                or view.get("stuck"):
+        if not view.get("ready") or view.get("by") == "ai" or view.get("state") in _READER_BUSY or view.get("stuck"):
             return False
         return bool(view.get("has_notes") or page_missing)
 
@@ -1587,7 +1595,7 @@ class Library:
         site = u.get("site") or self.cfg.data["civitai"]["sites"][0]
 
         def link(v):
-            return "%s/models/%s?modelVersionId=%s" % (site, u["model_id"], v.get("id"))
+            return version_url(site, u["model_id"], v.get("id"))
 
         def item(v):
             return {"id": v.get("id"), "name": names_mod.version_name(v.get("name"), None), "base_model": v.get("baseModel"),
@@ -1873,7 +1881,8 @@ class Library:
         if user != families.UNKNOWN:
             return user         # the user's word wins: they know what the model was made for
         header = _loads(row["header"], {}) or {}
-        stated = fields.get("family")
+        # from the base model at each reading, so that a changed families catalog takes effect at once
+        stated = families.from_base_model(fields["base_model"]) if fields.get("base_model") else fields.get("family")
         if not stated or stated == families.UNKNOWN:
             card = (_loads(row["sidecar"], {}) or {}).get("card") or {}
             stated = card.get("family")
@@ -1909,7 +1918,7 @@ class Library:
         if source and fields.get("model_id") and fields.get("version_id"):
             site = row["civitai_site"] or self.cfg.data["civitai"]["sites"][0]
             civitai = {"model_id": fields["model_id"], "version_id": fields["version_id"],
-                       "url": "%s/models/%s?modelVersionId=%s" % (site, fields["model_id"], fields["version_id"])}
+                       "url": version_url(site, fields["model_id"], fields["version_id"])}
         has_cover = bool(sha and row["cover_state"] == "ready")
         return {
             "sha256": sha,

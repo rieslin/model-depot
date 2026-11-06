@@ -1,6 +1,26 @@
 // Small pieces shared by the library and the dossier.
 
-export const MASK_FROM = 4;             // civitai's R: pictures rated R and above are masked unless the switch is off
+// What the server says about itself (/api/ui/state): the page's settings (its "page" group of advanced settings), the
+// limits of what can be typed or added, the base-model families, the sites links are read from. Set at start, and
+// again whenever the state is read.
+let known = { page: {}, limits: {}, hosts: {}, families: {}, kinds: [], extensions: [], config: {} };
+
+export function setServerState(state) {
+  if (state) known = state;
+}
+
+export function serverState() {
+  return known;
+}
+
+export function pageSetting(key) {
+  return known.page[key];
+}
+
+// civitai's rating from which pictures are masked unless the eye switch is off (R, as shipped).
+export function maskFrom() {
+  return known.page.mask_from;
+}
 
 export function levelName(level) {
   if (!level) return '';

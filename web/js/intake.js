@@ -3,15 +3,14 @@
 // the program opens it and starts reading.
 import { api } from './api.js';
 import { h, fill, formatBytes, formatDuration } from './dom.js';
-import { t, currentLang } from './i18n.js';
+import { t, andList } from './i18n.js';
 import { familyCode, familyName } from './families.js';
 import { mosaicOf, loadImage } from './mosaic.js';
-import { MASK_FROM, levelName, icon } from './ui.js';
+import { maskFrom, pageSetting, serverState, levelName, icon } from './ui.js';
 import { scramble, pace } from './motion.js';
 
 const RUNNING = ['running', 'verifying'];
 const WAITING = ['queued', 'paused', 'retrying'];
-const LINK_HINT = /civitai\.(com|red|green)\b|huggingface\.co\/|hf\.co\//i;
 const COVER_ASPECT = 5 / 8;
 const THUMB_ASPECT = 70 / 97;
 const FILE_PLATES = { 'model': 'MODEL', 'pruned model': 'PRUNED', 'vae': 'VAE', 'text encoder': 'TEXT ENC',
@@ -32,8 +31,15 @@ function cjk(text) {
 
 // "a（b）、c（d）" in Chinese, "a (b), c (d)" in English. A pair with no second part is just its first.
 function listOf(pairs) {
-  const zh = currentLang() === 'zh';
-  return pairs.map(([a, b]) => (!b ? a : zh ? a + '（' + b + '）' : a + ' (' + b + ')')).join(zh ? '、' : ', ');
+  return pairs.map(([a, b]) => (!b ? a : a + t('list.open') + b + t('list.close'))).join(t('list.sep'));
+}
+
+// Does the text hold a link to one of the sites links are read from (civitai's, Hugging Face's)?
+function hasLink(text) {
+  const esc = (host) => host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hosts = serverState().hosts;
+  const parts = [...(hosts.civitai || []).map((d) => esc(d) + '\\b'), ...(hosts.huggingface || []).map((d) => esc(d) + '/')];
+  return parts.length > 0 && new RegExp(parts.join('|'), 'i').test(text);
 }
 
 function nVersions(n) {
@@ -112,7 +118,7 @@ export class IntakeDrawer {
         h('button', { class: 'intake-close', type: 'button', title: t('dl.close'), 'aria-label': t('dl.close'), onclick: () => this.close() }, icon('i-x')),
         this.headMeta,
         h('div', { class: 'paste' }, this.field, h('button', { class: 'btn', type: 'button', onclick: () => this.read() }, t('dl.read'))),
-        h('p', { class: 'paste-hint' }, t('dl.paste_hint')),
+        h('p', { class: 'paste-hint' }, t('dl.paste_hint', { sites: andList(serverState().hosts.civitai || []) })),
         this.note),
       h('div', { class: 'intake-body' },
         h('section', { class: 'pending', 'aria-label': t('dl.pending') }, this.pendingLabel, this.recordsEl),
@@ -212,7 +218,7 @@ export class IntakeDrawer {
     }
     if (target && target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
     const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
-    if (!LINK_HINT.test(text)) return;
+    if (!hasLink(text)) return;
     e.preventDefault();
     this.open();
     this.field.value = text;
@@ -567,7 +573,7 @@ export class IntakeDrawer {
     const image = (v.images || []).find((x) => x.index === index);
     if (!image) return h('span', { class: cls + ' ph' });
     const key = v.id + '/' + index;
-    const masked = masking() && image.level >= MASK_FROM && !this.revealed.has(key);
+    const masked = masking() && image.level >= maskFrom() && !this.revealed.has(key);
     if (!masked) {
       const img = h('img', { class: cls, src: image.url, alt: '', loading: 'lazy', decoding: 'async' });
       img.addEventListener('error', () => img.replaceWith(h('span', { class: cls + ' ph' }, h('small', null, t('dos.sample_failed_short')))));
@@ -590,11 +596,11 @@ export class IntakeDrawer {
     const image = v.images.find((x) => x.index === index);
     const hero = h('div', { class: 'rec-hero' }, this.picture(v, index, COVER_ASPECT, 'hero-img', 9));
     const key = v.id + '/' + index;
-    if (image && masking() && image.level >= MASK_FROM && !this.revealed.has(key)) {
+    if (image && masking() && image.level >= maskFrom() && !this.revealed.has(key)) {
       hero.append(h('button', { class: 'reveal', type: 'button', onclick: () => { this.revealed.add(key); this.renderRecords(); } },
         t('dos.sample_reveal') + ' · ' + levelName(image.level)));
     }
-    if (image && image.level >= MASK_FROM) hero.append(h('span', { class: 'level' }, levelName(image.level)));
+    if (image && image.level >= maskFrom()) hero.append(h('span', { class: 'level' }, levelName(image.level)));
     if (image && image.type === 'video') hero.append(h('span', { class: 'thumb-play', 'aria-hidden': 'true' }, icon('i-play')));
     return hero;
   }
@@ -685,7 +691,7 @@ export class IntakeDrawer {
   schedule(delay) {
     clearTimeout(this.timer);
     const active = this.items.some((i) => RUNNING.includes(i.state) || i.state === 'queued' || i.state === 'retrying');
-    const wait = delay !== undefined ? delay : active ? 1000 : this.isOpen ? 5000 : 15000;
+    const wait = delay !== undefined ? delay : pageSetting(active ? 'queue_active_ms' : this.isOpen ? 'queue_open_ms' : 'queue_closed_ms');
     this.timer = setTimeout(() => this.refresh(), wait);
   }
 
@@ -760,7 +766,7 @@ export class IntakeDrawer {
   drawRow(item) {
     let thumb;
     if (item.cover) {
-      const masked = masking() && item.cover_level >= MASK_FROM;
+      const masked = masking() && item.cover_level >= maskFrom();
       if (masked) {
         thumb = h('span', { class: 'thumb masked' });
         loadImage(item.cover).then((img) => {

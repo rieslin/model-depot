@@ -2,7 +2,7 @@
 WebUI plugin saved next to each model as <name>.civitai.info."""
 import re
 
-from . import families
+from . import catalog, families
 
 # civitai's image ratings. Newer data has nsfwLevel (a bit value); older data has nsfw as a word or a yes/no.
 LEVEL_PG, LEVEL_PG13, LEVEL_R, LEVEL_X, LEVEL_XXX = 1, 2, 4, 8, 16
@@ -64,16 +64,6 @@ def version_fields(version):
     }
 
 
-# civitai model types that fit each kind of file here. A VAE that sits in a vae folder is better named by a page of
-# type "VAE" than by a checkpoint page that also offers it.
-_TYPES_FOR_KIND = {
-    "checkpoint": ("checkpoint",), "diffusion_model": ("checkpoint",), "lora": ("lora", "locon", "dora"),
-    "embedding": ("textualinversion",), "vae": ("vae",), "text_encoder": ("textencoder",),
-    "upscaler": ("upscaler",), "controlnet": ("controlnet",),
-}
-_MODEL_FILE_TYPES = ("model", "pruned model")
-
-
 def file_entry(version, sha256):
     """The entry of the version's file list that has this fingerprint, or None."""
     for f in (version or {}).get("files") or []:
@@ -87,7 +77,7 @@ def names_the_file(version, entry):
     the uploader merely added for convenience: the VAE or the text encoder that a checkpoint needs. civitai's batch
     lookup returns every version that lists a fingerprint, and popular VAEs are listed by hundreds of them."""
     file_type = str(entry.get("type") or "").lower()
-    if file_type in _MODEL_FILE_TYPES:
+    if file_type in catalog.load("civitai")["model_file_types"]:
         return True
     model_type = str(((version.get("model") or {}).get("type")) or "").lower()
     if file_type == "negative":
@@ -108,9 +98,12 @@ def pick_version(versions, sha256, kinds=()):
     file along; when no version names the file, that list is all civitai knows about it.
 
     The choice: a version whose main file it is, before one where it is a variant; a page of the kind the file is
-    stored as (see _TYPES_FOR_KIND), before others; then the most downloaded; then the oldest.
+    stored as, before others (civitai catalog: model_types_by_kind, the civitai model types that fit each kind of file
+    here: a VAE that sits in a vae folder is better named by a page of type "VAE" than by a checkpoint page that also
+    offers it); then the most downloaded; then the oldest.
     """
-    wanted_types = {t for k in kinds for t in _TYPES_FOR_KIND.get(k, ())}
+    by_kind = catalog.load("civitai")["model_types_by_kind"]
+    wanted_types = {t for k in kinds for t in by_kind.get(k, ())}
     naming, bundled = [], []
     for version in versions:
         if version_fields(version) is None:

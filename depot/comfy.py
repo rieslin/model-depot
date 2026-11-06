@@ -12,39 +12,40 @@ models folder that nothing claims are therefore offered too, as type "other".
 import os
 import re
 
-from . import kinds, scan, yamlish
+from . import catalog, kinds, scan, yamlish
 
-# ComfyUI's built-in model folders (type, sub-folders of the models folder), in its own order. Used when the
-# install's folder_paths.py cannot be read; read_builtin_types() prefers the install's own list.
-BUILTIN_TYPES = (
-    ("checkpoints", ("checkpoints",)),
-    ("loras", ("loras",)),
-    ("vae", ("vae",)),
-    ("text_encoders", ("text_encoders", "clip")),
-    ("diffusion_models", ("unet", "diffusion_models")),
-    ("clip_vision", ("clip_vision",)),
-    ("style_models", ("style_models",)),
-    ("embeddings", ("embeddings",)),
-    ("vae_approx", ("vae_approx",)),
-    ("controlnet", ("controlnet", "t2i_adapter")),
-    ("gligen", ("gligen",)),
-    ("upscale_models", ("upscale_models",)),
-    ("latent_upscale_models", ("latent_upscale_models",)),
-    ("hypernetworks", ("hypernetworks",)),
-    ("photomaker", ("photomaker",)),
-    ("model_patches", ("model_patches",)),
-    ("audio_encoders", ("audio_encoders",)),
-)
-# Types that are not lists of model files (ComfyUI lists .yaml files or whole folders for them).
-NOT_MODEL_TYPES = frozenset({"configs", "custom_nodes", "datasets", "classifiers", "diffusers"})
+
+def builtin_types():
+    """ComfyUI's built-in model folders ((type, (sub-folders of the models folder)), in its own order), from the
+    comfyui catalog. Used when the install's folder_paths.py cannot be read; read_builtin_types() prefers the install's
+    own list."""
+    return tuple((str(t), tuple(subs)) for t, subs in catalog.load("comfyui")["builtin_types"])
+
+
+def not_model_types():
+    """Types that are not lists of model files (ComfyUI lists .yaml files or whole folders for them)."""
+    return frozenset(catalog.load("comfyui")["not_model_types"])
+
+
+def output_model_folders():
+    """Models saved from inside ComfyUI land in its output folder; ComfyUI adds these (type, sub-folder of the output
+    folder) to the types at start-up (main.py), after everything else."""
+    return tuple((str(t), str(sub)) for t, sub in catalog.load("comfyui")["output_model_folders"])
+
+
+_OLD_NAMES = {"BUILTIN_TYPES": builtin_types, "NOT_MODEL_TYPES": not_model_types,
+              "OUTPUT_MODEL_FOLDERS": output_model_folders}
+
+
+def __getattr__(name):
+    if name in _OLD_NAMES:
+        return _OLD_NAMES[name]()
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
+
 
 _REGISTRATION_RE = re.compile(r"""^folder_names_and_paths\[["'](?P<type>[^"']+)["']\]\s*=\s*\(\[(?P<paths>.*?)\]\s*,\s*(?P<exts>.+)\)\s*$""")
 _MODELS_SUB_RE = re.compile(r"""os\.path\.join\(\s*models_dir\s*,\s*["']([^"']+)["']\s*\)""")
 _OPTION_RE = re.compile(r"""--(?P<name>models-directory|base-directory|output-directory|extra-model-paths-config)(?:=|\s+)(?P<rest>.*)""")
-# Models saved from inside ComfyUI land in its output folder; ComfyUI adds these sub-folders to the types at start-up
-# (main.py), after everything else.
-OUTPUT_MODEL_FOLDERS = (("checkpoints", "checkpoints"), ("clip", "clip"), ("vae", "vae"),
-                        ("diffusion_models", "diffusion_models"), ("loras", "loras"))
 _VALUE_RE = re.compile(r"""\s*(?:"([^"]*)"|'([^']*)'|([^\s"']+))""")
 _LAUNCHER_EXTENSIONS = (".bat", ".cmd", ".sh", ".ps1")
 _MAX_LAUNCHER_BYTES = 256 * 1024
@@ -75,8 +76,9 @@ def locate(path):
 
 def read_builtin_types(app_dir):
     """ComfyUI's built-in (type, sub-folders) list, read from the install's own folder_paths.py so that it follows
-    whatever version is installed. Falls back to BUILTIN_TYPES."""
+    whatever version is installed. Falls back to builtin_types()."""
     found = []
+    skip = not_model_types()
     try:
         with open(os.path.join(app_dir or "", "folder_paths.py"), encoding="utf-8") as f:
             for line in f:
@@ -84,11 +86,11 @@ def read_builtin_types(app_dir):
                 if not m or "supported_pt_extensions" not in m.group("exts"):
                     continue
                 subs = tuple(_MODELS_SUB_RE.findall(m.group("paths")))
-                if subs and m.group("type") not in NOT_MODEL_TYPES:
+                if subs and m.group("type") not in skip:
                     found.append((m.group("type"), subs))
     except OSError:
         found = []
-    return tuple(found) if len(found) >= 8 else BUILTIN_TYPES
+    return tuple(found) if len(found) >= 8 else builtin_types()
 
 
 def _option_values(rest, many):
@@ -239,6 +241,7 @@ def detect(comfy_dir, models_dir=""):
             registered.setdefault(ctype, []).append(folder)
             sources[(ctype, os.path.normcase(folder))] = "builtin"
 
+    skip = not_model_types()
     yaml_files = []
     if where and where["app_dir"]:
         own = os.path.join(where["app_dir"], "extra_model_paths.yaml")
@@ -252,7 +255,7 @@ def detect(comfy_dir, models_dir=""):
         result["extra_files"].append({"path": yaml_path, "ok": error is None, "error": error, "entries": len(entries)})
         for raw_type, folder, is_default in entries:
             ctype = kinds.canonical_type(raw_type)
-            if ctype in NOT_MODEL_TYPES:
+            if ctype in skip:
                 continue
             paths = registered.setdefault(ctype, [])
             cased = [os.path.normcase(p) for p in paths]
@@ -277,7 +280,7 @@ def detect(comfy_dir, models_dir=""):
     else:
         output_dir = None
     if output_dir:
-        for raw_type, sub in OUTPUT_MODEL_FOLDERS:
+        for raw_type, sub in output_model_folders():
             ctype = kinds.canonical_type(raw_type)
             folder = os.path.normpath(os.path.join(output_dir, sub))
             paths = registered.setdefault(ctype, [])

@@ -1,0 +1,50 @@
+{
+  "_about": "Local language models the program recommends and installs. models: key -> label, short (the name the dossier shows), repo and file (on Hugging Face), revision, gb (file size), vram (least graphics memory in GB the model is recommended for: the highest that fits the card is chosen), ram (memory in GB the computer needs besides). runtime: where llama.cpp's server comes from; {tag} and {cuda} are filled in; cuda_builds lists the CUDA build for the least CUDA version the driver reports, first fitting wins.",
+  "models": {
+    "qwen3.6-35b-a3b": {
+      "label": "Qwen3.6 35B-A3B Uncensored (Huihui, i1-Q4_K_M)",
+      "short": "Qwen3.6 35B-A3B",
+      "repo": "mradermacher/Huihui-Qwen3.6-35B-A3B-abliterated-i1-GGUF",
+      "file": "Huihui-Qwen3.6-35B-A3B-abliterated.i1-Q4_K_M.gguf",
+      "gb": 21.3,
+      "vram": 8,
+      "ram": 32,
+      "revision": "main"
+    },
+    "qwen3.8-27b": {
+      "label": "Qwen3.8 27B Uncensored (orcarouter, IQ4_XS)",
+      "short": "Qwen3.8 27B",
+      "repo": "bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF",
+      "file": "orcarouter_Qwen3.8-27B-Uncensored-IQ4_XS.gguf",
+      "gb": 15.6,
+      "vram": 12,
+      "ram": 24,
+      "revision": "main"
+    },
+    "qwen3.8-27b-q6": {
+      "label": "Qwen3.8 27B Uncensored (orcarouter, Q6_K)",
+      "short": "Qwen3.8 27B",
+      "repo": "bartowski/orcarouter_Qwen3.8-27B-Uncensored-GGUF",
+      "file": "orcarouter_Qwen3.8-27B-Uncensored-Q6_K.gguf",
+      "gb": 23.5,
+      "vram": 24,
+      "ram": 16,
+      "revision": "main"
+    }
+  },
+  "runtime": {
+    "releases_url": "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=10",
+    "server_asset": "llama-{tag}-bin-win-cuda-{cuda}-x64.zip",
+    "runtime_asset": "cudart-llama-bin-win-cuda-{cuda}-x64.zip",
+    "cuda_builds": [
+      {
+        "least_cuda": 13,
+        "build": "13.4"
+      },
+      {
+        "least_cuda": 0,
+        "build": "12.4"
+      }
+    ]
+  }
+}

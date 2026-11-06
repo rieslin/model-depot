@@ -1,12 +1,12 @@
 Model Depot 安装包
 
 安装步骤
-1. 将模型文件（Checkpoint、扩散模型、LoRA、VAE、文本编码器、放大模型等）放入本文件夹中的 Model Inbox 文件夹，子文件夹的排列方式不限。也可在安装完成后放入安装位置的 Model Inbox 文件夹。Model Inbox 只是待整理的文件夹，ComfyUI 不从这里读取模型。
+1. 将模型文件（Checkpoint、扩散模型、LoRA、VAE、文本编码器、放大模型等）放入本文件夹中的 {inbox} 文件夹，子文件夹的排列方式不限。也可在安装完成后放入安装位置的 {inbox} 文件夹。{inbox} 只是待整理的文件夹，ComfyUI 不从这里读取模型。
 2. 运行「Model Depot Setup.exe」，依次选择安装位置、模型库与数据文件夹。安装期间无需联网。
-3. 安装完成后打开 Model Depot，完成设置。Model Depot 随后列出 Model Inbox 中每个文件将移入模型库的位置，确认后移入。ComfyUI 与 Model Depot 都从模型库读取模型。
+3. 安装完成后打开 Model Depot，完成设置。Model Depot 随后列出 {inbox} 中每个文件将移入模型库的位置，确认后移入。ComfyUI 与 Model Depot 都从模型库读取模型。
 
 安装内容：Model Depot、ComfyUI（含插件与工作流）、本地模型运行程序、PixAI 打标模型，以及 ComfyUI 与本地模型所需的 Visual C++ 运行库文件。本机已装有 ComfyUI 便携版时，可选择沿用，不再另装一份。
-系统要求：Windows 11 或 Windows 10；NVIDIA RTX 20 系列或更新的显卡，驱动 580 或更新；安装位置约需 9 GB 可用空间，模型另需空间。
+系统要求：Windows 11 或 Windows 10；NVIDIA {min_gpu} 系列或更新的显卡，驱动 {min_driver} 或更新；安装位置约需 {install_gb} GB 可用空间，模型另需空间。
 
 注意事项
 - 安装程序未经数字签名。首次运行时 Windows 可能显示「Windows 已保护你的电脑」，点击「更多信息」，再点击「仍要运行」。
@@ -19,12 +19,12 @@ Model Depot 安装包
 Model Depot Setup
 
 Installation
-1. Put the model files (checkpoints, diffusion models, LoRAs, VAEs, text encoders, upscalers and so on) into the Model Inbox folder here, in any sub-folders. They can also go into the Model Inbox folder of the installation later. Model Inbox only holds files to be sorted; ComfyUI does not read models from it.
+1. Put the model files (checkpoints, diffusion models, LoRAs, VAEs, text encoders, upscalers and so on) into the {inbox} folder here, in any sub-folders. They can also go into the {inbox} folder of the installation later. {inbox} only holds files to be sorted; ComfyUI does not read models from it.
 2. Run "Model Depot Setup.exe" and choose the installation folder, the model library and the data folder. No internet connection is needed.
-3. Open Model Depot when the setup has finished and complete its settings. It then lists where each file in Model Inbox will go in the library, and moves them once confirmed. ComfyUI and Model Depot both read models from the library.
+3. Open Model Depot when the setup has finished and complete its settings. It then lists where each file in {inbox} will go in the library, and moves them once confirmed. ComfyUI and Model Depot both read models from the library.
 
 Installed: Model Depot, ComfyUI with its custom nodes and workflows, the local model runtime, the PixAI Tagger, and the Visual C++ runtime files ComfyUI and the local model need. When a portable ComfyUI is already on the computer, it can be used instead of installing another.
-Requirements: Windows 11 or Windows 10; an NVIDIA RTX 20 series card or later with driver 580 or later; about 9 GB free for the installation, and room for the models.
+Requirements: Windows 11 or Windows 10; an NVIDIA {min_gpu} series card or later with driver {min_driver} or later; about {install_gb} GB free for the installation, and room for the models.
 
 Notes
 - The setup is not digitally signed. On first run, Windows may show "Windows protected your PC": click "More info", then "Run anyway".

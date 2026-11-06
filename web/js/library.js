@@ -3,23 +3,23 @@
 // top bar; the type tabs in the bar over the roster; and the dossier of the selected model on the right.
 import { api } from './api.js';
 import { h, fill, clear, formatBytes } from './dom.js';
-import { t, currentLang } from './i18n.js';
+import { t, currentLang, joinList } from './i18n.js';
 import { familyCode, familyName, familyArch } from './families.js';
 import { mosaicOf, loadImage } from './mosaic.js';
 import { Dossier } from './dossier.js';
-import { MASK_FROM, levelName, icon, baseName, recall, remember, titleOf } from './ui.js';
+import { maskFrom, pageSetting, levelName, icon, baseName, recall, remember, titleOf } from './ui.js';
 import { decode, snap, onScreen, pace } from './motion.js';
 
 // What the library lists: the models one picks to make an image, under three tabs (the user's choice, 2026-10-20: "the
 // library needs only base or Checkpoint models, LoRA and Embedding; the rest can be indexed but not shown"). A diffusion
 // model (the model alone, without its text encoder and VAE, as Flux and Qwen come) is a Checkpoint here, though its
 // card still says which it is. VAEs, text encoders, upscalers, ControlNet models and SeedVR2's upscaling model are in
-// the inventory and the interface only.
-const TAB_OF = { checkpoint: 'checkpoint', diffusion_model: 'checkpoint', lora: 'lora', embedding: 'embedding' };
-const TAB_ORDER = ['checkpoint', 'lora', 'embedding'];
-const KIND_ORDER = ['checkpoint', 'diffusion_model', 'lora', 'embedding'];
-const UNLISTED_FAMILIES = new Set(['seedvr2']);      // a diffusion model by its make, but an upscaler by its use
-const listed = (m) => Boolean(TAB_OF[m.kind]) && !UNLISTED_FAMILIES.has(m.family);
+// the inventory and the interface only. Which kinds go under which tab, and the families never listed, are the page's
+// settings (advanced.json "page").
+const tabOf = (kind) => pageSetting('library_tabs')[kind];
+const tabOrder = () => pageSetting('library_tab_order');
+const kindOrder = () => pageSetting('library_kind_order');
+const listed = (m) => Boolean(tabOf(m.kind)) && !pageSetting('hidden_families').includes(m.family);
 const KEYS = { kind: 'md.kind', mask: 'md.mask', foldersKept: 'md.folders_kept', folds: 'md.folds' };
 const askedFolders = new Set();     // missing folders already put to the user in this visit
 let askedInbox = false;             // the inbox folders are looked at once a visit (the page opened or reloaded),
@@ -70,7 +70,7 @@ function cardCounts(models) {
   for (const m of models) {
     const key = (m.family || 'unknown') + '|' + (m.sha256 || m.comfy_name);
     keys[''].add(key);
-    const tab = TAB_OF[m.kind];
+    const tab = tabOf(m.kind);
     (keys[tab] || (keys[tab] = new Set())).add(key);
   }
   return Object.fromEntries(Object.entries(keys).map(([k, v]) => [k, v.size]));
@@ -90,7 +90,7 @@ export class Library {
     this.models = [];
     this.revision = -1;
     this.query = '';
-    this.kind = TAB_ORDER.includes(recall(KEYS.kind, '')) ? recall(KEYS.kind, '') : '';
+    this.kind = tabOrder().includes(recall(KEYS.kind, '')) ? recall(KEYS.kind, '') : '';
     this.onlyNew = false;           // only the models with a new version on civitai
     this.updatesRunning = null;     // whether a check for new versions was under way at the last look
     this.mask = recall(KEYS.mask, '1') === '1';
@@ -122,11 +122,11 @@ export class Library {
       icon('i-x'));
     fill(this.tools, h('label', { class: 'search' }, icon('i-search'), this.search, this.clearBtn));
     this.typeBar = h('div', { class: 'types', role: 'group', 'aria-label': t('lib.type_label'), onscroll: () => this.markOverflow() });
-    // The eye for covers rated R and above, as civitai has it: an open eye while they show, a struck-through one while
-    // they are hidden behind the mosaic. One switch, drawn twice: in the top bar, and in the bar over the roster on a
-    // phone; CSS shows one of the two.
-    const eyeButton = (where) => h('button', { class: 'eye-toggle ' + where, type: 'button', 'aria-label': t('lib.covers_hide'),
-      onclick: () => this.setMask(!this.mask) });
+    // The eye for covers rated R and above (the page's mask_from), as civitai has it: an open eye while they show, a
+    // struck-through one while they are hidden behind the mosaic. One switch, drawn twice: in the top bar, and in the
+    // bar over the roster on a phone; CSS shows one of the two.
+    const eyeButton = (where) => h('button', { class: 'eye-toggle ' + where, type: 'button',
+      'aria-label': t('lib.covers_hide', { level: levelName(maskFrom()) }), onclick: () => this.setMask(!this.mask) });
     this.maskBtns = [eyeButton('in-top'), eyeButton('in-bar')];
     this.drawEyes();
     this.note = h('p', { class: 'roster-note', role: 'status', hidden: true });
@@ -168,7 +168,7 @@ export class Library {
   // ones appear. Unchanged files are only looked at, not read, so this takes seconds.
   rescan() {
     const now = Date.now();
-    if (now - (Library.lastRescan || 0) < 30000) return;
+    if (now - (Library.lastRescan || 0) < pageSetting('rescan_gap_ms')) return;
     Library.lastRescan = now;
     api('POST', '/api/v1/scan', {}).catch(() => {});
   }
@@ -225,7 +225,7 @@ export class Library {
     } catch (e) {
       if (first) fill(this.list, h('p', { class: 'empty' }, t('lib.load_failed', { error: e.message })));
     }
-    if (this.alive) this.timer = setTimeout(() => this.refresh(false), busy ? 3000 : 8000);
+    if (this.alive) this.timer = setTimeout(() => this.refresh(false), pageSetting(busy ? 'progress_busy_ms' : 'progress_idle_ms'));
   }
 
   // ---- drawing -------------------------------------------------------------------------------------------------
@@ -242,7 +242,7 @@ export class Library {
     const newer = found.filter((m) => m.has_update);
     if (this.onlyNew && !newer.length) this.onlyNew = false;
     this.drawOnlyNew(newer.length);
-    const ofKind = this.kind ? found.filter((m) => TAB_OF[m.kind] === this.kind) : found;
+    const ofKind = this.kind ? found.filter((m) => tabOf(m.kind) === this.kind) : found;
     const shown = this.onlyNew ? ofKind.filter((m) => m.has_update) : ofKind;
     const byFamily = new Map();
     for (const m of shown) {
@@ -253,7 +253,7 @@ export class Library {
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
     this.groups = [...byFamily.entries()].map(([family, models]) => ({
       family,
-      stacks: stackUp(models).sort((a, b) => (KIND_ORDER.indexOf(a.lead.kind) - KIND_ORDER.indexOf(b.lead.kind))
+      stacks: stackUp(models).sort((a, b) => (kindOrder().indexOf(a.lead.kind) - kindOrder().indexOf(b.lead.kind))
         || collator.compare(a.lead.title || '', b.lead.title || '')),
     }));
     for (const g of this.groups) g.n = g.stacks.reduce((n, s) => n + s.versions.length, 0);
@@ -342,12 +342,12 @@ export class Library {
 
   drawTypes(found) {
     const counts = cardCounts(found);
-    if (this.kind && !counts[this.kind] && !this.models.some((m) => TAB_OF[m.kind] === this.kind)) this.kind = '';
+    if (this.kind && !counts[this.kind] && !this.models.some((m) => tabOf(m.kind) === this.kind)) this.kind = '';
     const was = this.typeBar.querySelector('.type-tab[aria-pressed="true"]');
     const from = was ? { kind: was.dataset.kind, ...inkBox(was) } : null;
     const tab = (kind, label, n) => h('button', { class: 'type-tab', type: 'button', 'aria-pressed': String(this.kind === kind),
       'data-kind': kind, onclick: () => this.setKind(kind) }, label, h('span', { class: 'n' }, String(n)));
-    const present = TAB_ORDER.filter((k) => this.models.some((m) => TAB_OF[m.kind] === k));
+    const present = tabOrder().filter((k) => this.models.some((m) => tabOf(m.kind) === k));
     fill(this.typeBar, tab('', t('lib.type_all'), counts['']), present.map((k) => tab(k, t('kind.' + k), counts[k] || 0)));
     const now = this.typeBar.querySelector('.type-tab[aria-pressed="true"]');
     if (from && now && now.dataset.kind !== from.kind) this.moveInk(from, now);
@@ -376,13 +376,13 @@ export class Library {
 
   drawGroup(group) {
     const perTab = {};
-    for (const s of group.stacks) perTab[TAB_OF[s.lead.kind]] = (perTab[TAB_OF[s.lead.kind]] || 0) + s.versions.length;
+    for (const s of group.stacks) perTab[tabOf(s.lead.kind)] = (perTab[tabOf(s.lead.kind)] || 0) + s.versions.length;
     const arch = familyArch(group.family);
     // Chinese words in this line keep their natural spacing; only the Latin codes are tracked out (see DESIGN.md).
     const parts = [
       group.family === 'unknown' ? [cjk(t('fam.unknown'))] : [cjk(t('lib.meta_base')), '  ' + familyName(group.family)],
       arch ? [cjk(t('lib.meta_arch', { arch }))] : null,
-      ...TAB_ORDER.filter((k) => perTab[k]).map((k) => [cjk(t('kind.' + k)), ' ' + perTab[k]]),
+      ...tabOrder().filter((k) => perTab[k]).map((k) => [cjk(t('kind.' + k)), ' ' + perTab[k]]),
     ].filter(Boolean);
     const meta = parts.flatMap((p, i) => (i ? ['  ·  ', ...p] : p));
     const key = 'g:' + group.family;
@@ -471,13 +471,13 @@ export class Library {
   }
 
   drawCard(m, inSet = false) {
-    const masked = this.mask && m.cover && m.cover_level >= MASK_FROM;
+    const masked = this.mask && m.cover && m.cover_level >= maskFrom();
     const kind = t('kind.' + m.kind);
     let cover;
     if (m.hash_pending) {
       cover = h('span', { class: 'cover ph' }, h('b', null, kind), h('small', null, t('lib.pending')));
     } else if (m.cover && !masked) {
-      cover = h('img', { class: 'cover', src: this.coverSrc(m), alt: '', loading: 'lazy', decoding: 'async', 'data-rated': m.cover_level >= MASK_FROM });
+      cover = h('img', { class: 'cover', src: this.coverSrc(m), alt: '', loading: 'lazy', decoding: 'async', 'data-rated': m.cover_level >= maskFrom() });
     } else if (m.cover) {
       cover = h('span', { class: 'cover', 'data-kind': kind });
       this.lazyMosaic(cover, this.coverSrc(m));
@@ -494,7 +494,7 @@ export class Library {
       title: m.hash_pending ? t('dos.pending') : title + (m.version_name ? ' · ' + m.version_name : ''), disabled: m.hash_pending },
       cover,
       m.sha256 ? h('span', { class: 'pick-box', title: t('sel.pick'), 'aria-hidden': 'true' }) : null,
-      m.cover_level >= MASK_FROM ? h('span', { class: 'level', title: t('lib.rated', { level: levelName(m.cover_level) }) }, levelName(m.cover_level)) : null,
+      m.cover_level >= maskFrom() ? h('span', { class: 'level', title: t('lib.rated', { level: levelName(m.cover_level) }) }, levelName(m.cover_level)) : null,
       h('span', { class: 'strip' },
         // a new version on civitai: a yellow plate at the cover's lower left (the user's choice, 2026-10-14)
         m.update_label ? h('span', { class: 'new-plate', title: t('lib.new_plate_title', { version: m.update_label }) },
@@ -994,7 +994,7 @@ export class Library {
     for (const button of this.maskBtns) {
       fill(button, icon(this.mask ? 'i-eye-off' : 'i-eye'));
       button.setAttribute('aria-pressed', String(this.mask));
-      button.title = t(this.mask ? 'lib.covers_show' : 'lib.covers_hide');
+      button.title = t(this.mask ? 'lib.covers_show' : 'lib.covers_hide', { level: levelName(maskFrom()) });
     }
   }
 
@@ -1050,7 +1050,7 @@ export class Library {
         onchange: (e) => { if (e.target.checked) chosen.add(f.path); else chosen.delete(f.path); sync(); } }) : null;
       return h('li', null, h(many ? 'label' : 'div', { class: 'confirm-file' }, box,
         h('span', { class: 'what' }, h('span', { class: 'path' }, f.path),
-          h('small', null, (f.comfy_types || []).map(typeName).join(currentLang() === 'zh' ? '、' : ', ')))));
+          h('small', null, joinList((f.comfy_types || []).map(typeName))))));
     });
     go.onclick = async () => {
       go.disabled = true;
@@ -1139,19 +1139,19 @@ export class Library {
     const follow = async () => {
       let state;
       try { state = (await api('GET', '/api/ui/inbox')).progress; } catch (e) { state = null; }
-      if (!state) { setTimeout(follow, 1500); return; }
+      if (!state) { setTimeout(follow, pageSetting('inbox_error_ms')); return; }
       if (state.running) {
         gauge.hidden = false;
         gauge.firstChild.style.width = (state.bytes_total ? 100 * state.bytes_done / state.bytes_total : 0) + '%';
         note.className = 'confirm-msg';
         note.textContent = t('lib.inbox_moving', { name: state.current || '', done: Math.min(state.done + 1, state.total), total: state.total });
-        setTimeout(follow, 700);
+        setTimeout(follow, pageSetting('inbox_ms'));
         return;
       }
       if (state.failed.length) {
         gauge.hidden = true;
         note.className = 'confirm-msg bad';
-        note.textContent = t('lib.inbox_failed', { n: state.failed.length, names: state.failed.map((f) => f.name).join(currentLang() === 'zh' ? '、' : ', ') });
+        note.textContent = t('lib.inbox_failed', { n: state.failed.length, names: joinList(state.failed.map((f) => f.name)) });
         stop.hidden = true;
         later.hidden = false;
         later.textContent = t('lib.inbox_close');

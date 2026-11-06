@@ -14,6 +14,7 @@ The preview has the shape of a civitai preview (intake.describe), so the downloa
 the file as a model with one version and one file, no example images.
 """
 import asyncio
+import functools
 import os
 import re
 import zlib
@@ -21,15 +22,43 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 
 import aiohttp
 
-from . import __version__, companions, families, folders, kinds
+from . import advanced, catalog, companions, families, folders, kinds
+from .civitai import USER_AGENT
 
-HOSTS = ("huggingface.co", "hf.co", "www.huggingface.co")
-SITE = "https://huggingface.co"
-_TIMEOUT = aiohttp.ClientTimeout(total=20, sock_connect=8, sock_read=15)
-# ComfyUI's model folders, as they appear in a repository's paths (Comfy-Org's split_files/<type>/...)
-_PATH_TYPES = ("checkpoints", "diffusion_models", "text_encoders", "vae", "loras", "upscale_models", "embeddings",
-               "controlnet", "clip_vision", "model_patches", "latent_upscale_models", "style_models", "unet", "clip")
-_LEGACY = {"unet": "diffusion_models", "clip": "text_encoders"}
+# The site companions.json and ComfyUI's templates write their addresses on; a mirror in the settings stands in for it.
+CANONICAL = "https://huggingface.co"
+
+
+def site():
+    """Where files are downloaded from (huggingface.site): huggingface.co, or a mirror."""
+    return advanced.get("huggingface.site").rstrip("/")
+
+
+def __getattr__(name):
+    if name == "SITE":
+        return site()
+    if name == "HOSTS":
+        return tuple(advanced.get("huggingface.hosts"))
+    raise AttributeError(name)
+
+
+def on_site(url):
+    """A huggingface.co address on the site in the settings (the same address while that is huggingface.co)."""
+    here = site()
+    if here != CANONICAL and isinstance(url, str) and url.startswith(CANONICAL + "/"):
+        return here + url[len(CANONICAL):]
+    return url
+
+
+def _timeout():
+    get = advanced.get
+    return aiohttp.ClientTimeout(total=get("network.hf_total"), sock_connect=get("network.hf_connect"),
+                                 sock_read=get("network.hf_read"))
+
+
+@functools.lru_cache(maxsize=64)
+def _pattern(text):
+    return re.compile(text)
 
 
 class HFError(Exception):
@@ -42,7 +71,9 @@ class HFError(Exception):
 
 
 def is_hf(host):
-    return (host or "").lower().rstrip(".") in HOSTS
+    """A Hugging Face host name (huggingface.hosts), or the host of the site in the settings."""
+    host = (host or "").lower().rstrip(".")
+    return host in {h.lower() for h in advanced.get("huggingface.hosts")} or host == (urlsplit(site()).hostname or "")
 
 
 def parse(url):
@@ -57,8 +88,10 @@ def parse(url):
     if len(segs) < 5 or segs[2] not in ("blob", "resolve"):
         return {"error": "hf_not_file"}
     repo, revision, path = segs[0] + "/" + segs[1], segs[3], "/".join(segs[4:])
+    here = site()
+
     def address(kind):      # joined, not %-formatted: a quoted path carries "%20" and the like
-        return "/".join((SITE, repo, kind, quote(revision, safe=""), quote(path, safe="/")))
+        return "/".join((here, repo, kind, quote(revision, safe=""), quote(path, safe="/")))
     return {"hf": address("resolve"), "page": address("blob"), "repo": repo, "revision": revision, "path": path,
             "name": os.path.basename(path), "error": None}
 
@@ -71,24 +104,20 @@ def file_id(url):
 def guess_type(path):
     """The ComfyUI folder a file's path in its repository names (split_files/text_encoders/x.safetensors), or by
     its name; None when neither says."""
+    comfy = catalog.load("comfyui")
     parts = [p.lower() for p in path.split("/")[:-1]]
     for p in reversed(parts):
-        if p in _PATH_TYPES:
-            return _LEGACY.get(p, p)
+        if p in comfy["hf_path_types"]:
+            return comfy["legacy_types"].get(p, p)
     name = os.path.basename(path).lower()
-    if "vae" in name:
-        return "vae"
-    if "lora" in name:
-        return "loras"
-    if re.search(r"text_?encoder|clip_|t5xxl|umt5|qwen\d|qwen_\d|gemma|mistral", name):
-        return "text_encoders"
-    if re.search(r"(^|[^a-z0-9])\dx[-_]|esrgan|upscal", name):
-        return "upscale_models"
+    for pattern, ctype in comfy["hf_name_types"]:
+        if _pattern(pattern).search(name):
+            return ctype
     return None
 
 
 def session():
-    return aiohttp.ClientSession(trust_env=False, timeout=_TIMEOUT, headers={"User-Agent": "ModelDepot/%s" % __version__})
+    return aiohttp.ClientSession(trust_env=False, timeout=_timeout(), headers={"User-Agent": USER_AGENT})
 
 
 async def head(url, proxy=None):
@@ -139,7 +168,7 @@ def describe(link, info, present, queued, suggest):
                "cover": None, "files": [entry], "chosen": [fid], "comfy_type": ctype,
                "suggestion": suggest(ctype, family, companions.subfolder(ctype, sha, info.get("bytes")))}
     owner = link["repo"].split("/")[0]
-    return {"site": SITE, "source": "hf", "hf": link["hf"],
+    return {"site": site(), "source": "hf", "hf": link["hf"],
             "model": {"id": 0, "name": name, "type": None, "kind": kinds.kind_of(ctype) if ctype else "other",
                       "comfy_type": ctype, "creator": owner, "nsfw": False, "availability": "Public", "mode": None,
                       "url": link["page"]},

@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, advanced, catalog
 from .config import Config
 from .paths import DataPaths, data_dir, install_info
 
@@ -24,8 +24,9 @@ def setup_logging(paths, verbose=False):
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    to_file = logging.handlers.RotatingFileHandler(os.path.join(paths.logs, "depot.log"), maxBytes=2 * 1024 * 1024,
-                                                   backupCount=3, encoding="utf-8")
+    to_file = logging.handlers.RotatingFileHandler(os.path.join(paths.logs, "depot.log"),
+                                                   maxBytes=int(advanced.get("logs.max_mb") * 1024 * 1024),
+                                                   backupCount=int(advanced.get("logs.files")), encoding="utf-8")
     to_file.setFormatter(fmt)
     root.addHandler(to_file)
     console = logging.StreamHandler()
@@ -161,8 +162,10 @@ def main(argv=None):
     code = check()
     if code != EXIT_OK:
         return code
+    paths.ensure()
+    catalog.use_folder(paths.catalog)
+    cfg = Config.load(paths)        # first: the log's size is among its advanced settings
     setup_logging(paths, args.verbose)
-    cfg = Config.load(paths)
     if cfg.load_problem:
         log.warning("settings file could not be read (%s); starting with the setup wizard", cfg.load_problem)
     elif not cfg.exists:

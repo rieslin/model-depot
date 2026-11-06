@@ -12,8 +12,10 @@ import re
 
 from PIL import Image, ImageOps
 
+from . import catalog
+from .thumbs import BACKDROP
+
 MAX_SIDE = 2048          # the copy kept: large enough for the larger view on a 4K screen
-_BACKDROP = (32, 32, 32)     # behind a transparent picture, as the thumbnails have it (thumbs.py)
 _LANCZOS = getattr(Image, "Resampling", Image).LANCZOS
 
 
@@ -32,7 +34,7 @@ def keep(data):
         image = ImageOps.exif_transpose(image) or image
         if image.mode in ("RGBA", "LA", "PA") or (image.mode == "P" and "transparency" in image.info):
             rgba = image.convert("RGBA")
-            image = Image.new("RGB", rgba.size, _BACKDROP)
+            image = Image.new("RGB", rgba.size, BACKDROP)
             image.paste(rgba, mask=rgba.getchannel("A"))
         else:
             image = image.convert("RGB")
@@ -125,9 +127,6 @@ def webui_settings(text):
     return out or None
 
 
-_SAMPLERS = ("KSampler", "KSamplerAdvanced", "SamplerCustom", "SamplerCustomAdvanced")
-
-
 def comfy_settings(graph):
     """ComfyUI's graph ("prompt"): the settings of its sampler node, its prompts followed back through the graph."""
     nodes = {str(k): v for k, v in graph.items() if isinstance(v, dict)}
@@ -159,7 +158,8 @@ def comfy_settings(graph):
     def number(value):
         return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
-    sampler = next((n for n in nodes.values() if n.get("class_type") in _SAMPLERS), None)
+    sampler_nodes = catalog.load("comfyui")["sampler_nodes"]
+    sampler = next((n for n in nodes.values() if n.get("class_type") in sampler_nodes), None)
     if sampler is None:
         return None
     inputs = sampler.get("inputs") or {}

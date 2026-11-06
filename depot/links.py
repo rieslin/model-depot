@@ -18,12 +18,13 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 from . import hfhub
+from .civitai import CIVITAI_DOMAINS, is_civitai_domain
 
-CIVITAI_DOMAINS = ("civitai.com", "civitai.red", "civitai.green")
 MAX_LINKS = 20
 
-_URL_FIND_RE = re.compile(r"(?:https?://|(?<![\w.-])(?:[\w-]+\.)*civitai\.(?:com|red|green)(?=[/?#:]|\b))"
-                          r"[^\s<>\"'，；、。）」』》“”]*", re.I)
+_URL_FIND_RE = re.compile(r"(?:https?://|(?<![\w.-])(?:[\w-]+\.)*(?:%s)(?=[/?#:]|\b))"
+                          % "|".join(re.escape(d) for d in CIVITAI_DOMAINS)
+                          + r"[^\s<>\"'，；、。）」』》“”]*", re.I)
 _SPLIT_RE = re.compile(r"[\s,;，；、]+")
 _AIR_RE = re.compile(r"^urn:air:[^:\s]+:[^:\s]+:civitai:(\d+)@(\d+)$", re.I)
 _PAIR_RE = re.compile(r"^(\d+)@(\d+)$")
@@ -40,8 +41,7 @@ def _int(value):
 
 
 def _is_civitai(host):
-    host = (host or "").lower().rstrip(".")
-    return any(host == d or host.endswith("." + d) for d in CIVITAI_DOMAINS)
+    return is_civitai_domain((host or "").lower().rstrip("."))
 
 
 def parse_url(text):

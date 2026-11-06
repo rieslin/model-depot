@@ -1,0 +1,97 @@
+{
+  "_about": "Shipped defaults of the advanced settings (advanced.py). A computer overrides any value in config.json under \"advanced\", e.g. {\"network\": {\"quick_total\": 20}}. Times are in seconds unless the key ends in _ms; sizes in MB unless named otherwise.",
+  "network": {
+    "quick_total": {"value": 12, "min": 1, "max": 600, "about": "Longest time in all for a civitai request someone is waiting on (a model page, a link preview)."},
+    "quick_connect": {"value": 5, "min": 1, "max": 120, "about": "Longest wait for the connection of such a request."},
+    "quick_read": {"value": 6, "min": 1, "max": 600, "about": "Longest wait between two pieces of its answer."},
+    "picture_total": {"value": 60, "min": 1, "max": 600, "about": "Longest time in all for one example image or first video frame (civitai's image server can take over 20 s for an address nobody asked for before)."},
+    "picture_connect": {"value": 5, "min": 1, "max": 120, "about": "Longest wait for the connection of an example image."},
+    "picture_read": {"value": 45, "min": 1, "max": 600, "about": "Longest wait between two pieces of an example image."},
+    "background_total": {"value": 120, "min": 1, "max": 3600, "about": "Longest time in all for a background civitai request (checking fingerprints, covers)."},
+    "background_connect": {"value": 20, "min": 1, "max": 300, "about": "Longest wait for the connection of a background request."},
+    "stream_connect": {"value": 20, "min": 1, "max": 300, "about": "Longest wait for the connection of a download or a video."},
+    "stream_read": {"value": 60, "min": 1, "max": 3600, "about": "A download or video that sends nothing for this long is retried."},
+    "cooldown": {"value": 60, "min": 0, "max": 3600, "about": "After a site fails, requests of the same sort are answered \"cannot connect\" at once for this long."},
+    "hf_total": {"value": 20, "min": 1, "max": 600, "about": "Longest time in all for reading a Hugging Face link."},
+    "hf_connect": {"value": 8, "min": 1, "max": 120, "about": "Longest wait for the connection to Hugging Face."},
+    "hf_read": {"value": 15, "min": 1, "max": 600, "about": "Longest wait between two pieces of Hugging Face's answer."},
+    "test_step": {"value": 6, "min": 1, "max": 120, "about": "Longest time for each of the name lookup and connection steps of Test connection."},
+    "test_total": {"value": 15, "min": 1, "max": 300, "about": "Longest time for the secure handshake and answer steps of Test connection."},
+    "test_connect": {"value": 6, "min": 1, "max": 120, "about": "Longest wait for the connection in those steps."},
+    "test_read": {"value": 10, "min": 1, "max": 300, "about": "Longest wait for the answer in those steps."},
+    "proxy_reuse": {"value": 10, "min": 0, "max": 600, "about": "How long a reading of Windows' proxy setting is reused (turning a VPN on or off takes effect after this)."},
+    "pac_reuse": {"value": 300, "min": 0, "max": 86400, "about": "How long a proxy auto-configuration script is reused before it is read again."}
+  },
+  "civitai": {
+    "sample_interval": {"value": 0.25, "min": 0, "max": 60, "about": "Spacing of example-image requests someone is waiting for."},
+    "preview_interval": {"value": 1.0, "min": 0, "max": 60, "about": "Spacing of the requests that read a pasted link."},
+    "retry_delays": {"value": [3, 10], "min": 0, "max": 3600, "about": "Waits before each retry of a background civitai request; one retry per entry."},
+    "interactive_retry_delay": {"value": 1.0, "min": 0, "max": 60, "about": "Wait before the one retry of a request someone is waiting on."},
+    "lookup_backoff": {"value": [30, 120, 600], "min": 0, "max": 86400, "about": "Waits after failed rounds of checking fingerprints with civitai; after the last, checking stops until the next start or a manual retry."},
+    "preview_cache": {"value": 600, "min": 0, "max": 86400, "about": "How long a model page read for a pasted link serves the same link again."},
+    "page_site": {"value": "https://civitai.com", "about": "The site the page links to for a civitai model version that is not in the library (civitai.red refuses some browsers' direct visits)."}
+  },
+  "huggingface": {
+    "site": {"value": "https://huggingface.co", "about": "Where Hugging Face files are downloaded from: huggingface.co, or a mirror that answers in the same way."},
+    "hosts": {"value": ["huggingface.co", "hf.co", "www.huggingface.co"], "about": "Host names whose links the download drawer reads as Hugging Face links."}
+  },
+  "downloads": {
+    "retry_delays": {"value": [10, 30, 90, 300, 600], "min": 0, "max": 86400, "about": "Waits before each retry of a failed download; after the last, the download stays failed."},
+    "space_margin_mb": {"value": 256, "min": 0, "max": 1048576, "about": "Free space a download must leave on its disk."},
+    "install_margin_mb": {"value": 1024, "min": 0, "max": 1048576, "about": "Free space the local-model installation must leave on its disk."},
+    "install_connect": {"value": 30, "min": 1, "max": 600, "about": "Longest wait for the connection when downloading the local model or llama.cpp."},
+    "install_read": {"value": 120, "min": 1, "max": 3600, "about": "That download is retried after sending nothing for this long."}
+  },
+  "reader": {
+    "vram_gb": {"value": 0, "min": 0, "max": 4096, "about": "Graphics memory in GB the local model is chosen by, in place of what nvidia-smi reports; 0 takes nvidia-smi's (NVIDIA cards only). Set it on a computer whose card nvidia-smi cannot see; the local model then runs without watching the card for other programs, which needs nvidia-smi."},
+    "start_free_share": {"value": 0.6, "min": 0, "max": 1, "about": "A managed local model is not started while less than this share of the card's memory is free."},
+    "start_free_min_mb": {"value": 4096, "min": 0, "max": 1048576, "about": "But never asks for less free memory than this."},
+    "guard_interval": {"value": 2.0, "min": 0.1, "max": 60, "about": "How often the card is looked at while the local model runs."},
+    "others_load_pct": {"value": 30, "min": 1, "max": 100, "about": "Graphics load, in percent, from which another program counts as using the card."},
+    "give_way_mb": {"value": 512, "min": 0, "max": 1048576, "about": "A drop in free graphics memory by this much means another program wants the card."},
+    "busy_looks": {"value": 2, "min": 1, "max": 100, "about": "Looks in a row the card must seem busy before the local model gives it away."},
+    "wait_retry": {"value": 60, "min": 1, "max": 3600, "about": "While the card is busy, a waiting reading tries again after this long; the local model also stays off this long after giving the card away."},
+    "wait_limit": {"value": 1800, "min": 1, "max": 86400, "about": "A reading that has waited this long for the card gives up until the model is next opened."},
+    "start_timeout": {"value": 600, "min": 10, "max": 7200, "about": "Longest time the local model may take to load."},
+    "read_timeout": {"value": 600, "min": 10, "max": 7200, "about": "Longest time for reading one model's notes."},
+    "name_timeout": {"value": 180, "min": 5, "max": 3600, "about": "Longest time for settling one model's name."},
+    "probe_total": {"value": 10, "min": 1, "max": 300, "about": "Longest time for checking a local model address given in the settings."},
+    "probe_connect": {"value": 3, "min": 1, "max": 120, "about": "Longest wait for the connection of that check."},
+    "max_answer_tokens": {"value": 4096, "min": 256, "max": 131072, "about": "Longest answer asked of the local model when it reads notes; must fit in its context."},
+    "max_version_text": {"value": 6000, "min": 500, "max": 1000000, "about": "Characters of a version's notes given to the local model."},
+    "max_model_text": {"value": 14000, "min": 500, "max": 1000000, "about": "Characters of a model page's notes given to the local model."},
+    "request_extra": {"value": {"chat_template_kwargs": {"enable_thinking": false}}, "about": "Added to every request to the local model (OpenAI chat API). The default turns off the thinking of Qwen models; empty {} for a server that refuses unknown fields."}
+  },
+  "server": {
+    "browser_cache_seconds": {"value": 86400, "min": 0, "max": 31536000, "about": "How long the browser keeps example images and videos without asking again."},
+    "max_picture_mb": {"value": 80, "min": 1, "max": 4096, "about": "Largest picture that can be added to a model."}
+  },
+  "logs": {
+    "max_mb": {"value": 2, "min": 0.1, "max": 1024, "about": "Size at which the log file is started again."},
+    "files": {"value": 3, "min": 1, "max": 100, "about": "Earlier log files kept."}
+  },
+  "page": {
+    "library_tabs": {"value": {"checkpoint": "checkpoint", "diffusion_model": "checkpoint", "lora": "lora", "embedding": "embedding"}, "about": "Which kinds the model library lists, and under which tab (kind: tab). Other kinds are in the inventory only."},
+    "library_tab_order": {"value": ["checkpoint", "lora", "embedding"], "about": "The tabs of the model library, in order."},
+    "library_kind_order": {"value": ["checkpoint", "diffusion_model", "lora", "embedding"], "about": "Order of the kinds within a group of the library."},
+    "hidden_families": {"value": ["seedvr2"], "about": "Base-model families the library never lists (SeedVR2 is an upscaler by use)."},
+    "inventory_hidden_kinds": {"value": ["other"], "about": "Kinds the inventory leaves out."},
+    "mask_from": {"value": 4, "min": 1, "max": 32, "about": "civitai rating level from which covers are hidden behind the mosaic while the eye switch is off (1 PG, 2 PG-13, 4 R, 8 X, 16 XXX)."},
+    "rescan_gap_ms": {"value": 30000, "min": 0, "max": 3600000, "about": "Opening the library or bringing the window to the front scans the folders again at most this often."},
+    "progress_busy_ms": {"value": 3000, "min": 200, "max": 600000, "about": "How often the library asks for progress while work is going on."},
+    "progress_idle_ms": {"value": 8000, "min": 200, "max": 600000, "about": "And while nothing is going on."},
+    "reader_follow_ms": {"value": 3000, "min": 200, "max": 600000, "about": "How often an open model asks whether the local model has read its notes."},
+    "queue_active_ms": {"value": 1000, "min": 200, "max": 600000, "about": "How often the download queue is refreshed while a download runs (the progress bars glide over 1 s)."},
+    "queue_open_ms": {"value": 5000, "min": 200, "max": 600000, "about": "And while the drawer is open with nothing running."},
+    "queue_closed_ms": {"value": 15000, "min": 200, "max": 600000, "about": "And while the drawer is closed."},
+    "inventory_busy_ms": {"value": 1000, "min": 200, "max": 600000, "about": "How often the inventory refreshes while work is going on."},
+    "inventory_idle_ms": {"value": 4000, "min": 200, "max": 600000, "about": "And while nothing is going on."},
+    "setup_install_ms": {"value": 1000, "min": 200, "max": 600000, "about": "How often the settings page follows the local-model installation."},
+    "setup_status_ms": {"value": 4000, "min": 200, "max": 600000, "about": "How often the settings page refreshes the local model's status."},
+    "inbox_ms": {"value": 700, "min": 200, "max": 600000, "about": "How often the sorting dialog follows the moving of files (its bar glides over 0.6 s)."},
+    "inbox_error_ms": {"value": 1500, "min": 200, "max": 600000, "about": "And after a failed look."}
+  },
+  "desktop": {
+    "start_wait": {"value": 180, "min": 10, "max": 3600, "about": "Longest time the Windows app waits for the background program to start (the first start also prepares its Python environment)."}
+  }
+}

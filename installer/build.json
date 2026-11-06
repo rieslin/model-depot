@@ -1,0 +1,68 @@
+{
+  "_about": "What the Windows package holds and the product's own values, the same on every computer (installer\\build.py reads it; the paths of the computer that builds are in build.local.json). product: written into setup\\manifest.json as it stands, for the setup (Engine.cs) and its page (setup.js): app_folder, the folder an installation goes into; inbox_folder, the folder beside the package and in the installation for model files to sort (named so that nobody takes it for ComfyUI's models folder); workflow_folder, the folder of an existing ComfyUI's workflow list the workflows go into; min_driver, the oldest NVIDIA driver (PyTorch cu130 and llama.cpp's CUDA 13 build both need 580); min_gpu, the oldest NVIDIA cards, as the setup's sentences name them; launchers, a portable ComfyUI's launch scripts, the first that exists starting it; custom_nodes, the custom nodes that ship (folder: about [Chinese, English], what the setup shows of one missing from an existing ComfyUI; why, the reason it ships), every other one is left out and a user adds it through ComfyUI's manager; bundled_models, the folders of the bundled ComfyUI's model library that ship (build.local.json may name others). app: the repository's files the installed program needs (path prefixes, single files). package_licenses: the license files beside the setup. vc_runtime: the Visual C++ runtime files PyTorch and llama.cpp link against, taken from System32 and put beside the programs that load them (Microsoft lets them be shipped with an application); required, those without which the build stops. python_leave_out: what of the program's site-packages stays home. official_workflows: [ComfyUI template, name in the workflow list], the default workflows; templates: where the templates are in a portable ComfyUI. comfyui: what of the developer's ComfyUI stays home, its user's own files: leave_out_app_folders and leave_out_app_files under its ComfyUI folder, leave_out_folders under the portable root, leave_out_names (folder names anywhere), leave_out_files (file patterns anywhere); empty_folders, the working folders that ship empty; user_files, the files of its user folder that ship; manager_update_policy, what ComfyUI's manager is told to follow. comfyui_pip: packages replaced in the copied ComfyUI (build.local.json may name others).",
+  "product": {
+    "app_folder": "Model Depot",
+    "publisher": "ZEUS INSiGHTS",
+    "inbox_folder": "Model Inbox",
+    "workflow_folder": "Model Depot",
+    "min_driver": 580,
+    "min_gpu": "RTX 20",
+    "launchers": ["run_nvidia_gpu.bat", "run_nvidia_gpu_fast_fp16_accumulation.bat", "run_cpu.bat"],
+    "custom_nodes": {
+      "ComfyUI-GGUF": {
+        "about": ["GGUF 格式模型的加载", "Loading GGUF models"],
+        "why": "GGUF model files (diffusion models, text encoders): ComfyUI's own loaders cannot read them"
+      },
+      "ComfyUI-PixAI-Tagger": {
+        "about": ["图片标签读取（PixAI）", "Image tags (PixAI)"],
+        "why": "the optional \"anime to real\" workflow, and tagging images"
+      },
+      "ComfyUI-Impact-Pack": {
+        "about": ["细节修复（人脸、手部）", "Detail fixing (faces, hands)"],
+        "why": "detail passes on faces and hands (FaceDetailer)"
+      },
+      "ComfyUI-Impact-Subpack": {
+        "about": ["细节修复所用的检测模型", "Detection models for detail fixing"],
+        "why": "the detectors those passes use (UltralyticsDetectorProvider)"
+      },
+      "comfyui_controlnet_aux": {
+        "about": ["ControlNet 预处理（姿势、深度、线稿）", "ControlNet preprocessors (pose, depth, lines)"],
+        "why": "pose, depth and line preprocessing for ControlNet"
+      }
+    },
+    "bundled_models": ["taggers/pixai-tagger-v1.0"]
+  },
+  "app": {
+    "prefixes": ["depot/", "web/", "scripts/", "desktop/app/"],
+    "files": ["run.py", "requirements.txt", "README.md", "README.zh-CN.md", "LICENSE", "THIRD-PARTY-NOTICES.md",
+              "desktop/loader.html", "Start.cmd", "Stop.cmd", "启动.cmd", "停止.cmd"]
+  },
+  "package_licenses": ["LICENSE", "THIRD-PARTY-NOTICES.md"],
+  "vc_runtime": {
+    "files": ["msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll", "msvcp140_codecvt_ids.dll",
+              "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll", "concrt140.dll", "vcomp140.dll"],
+    "required": ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"]
+  },
+  "python_leave_out": ["__pycache__", "pip", "pip-*", "_distutils_hack", "distutils-precedence.pth", "setuptools*", "pkg_resources"],
+  "official_workflows": [
+    ["image_z_image_turbo.json", "Z-Image Turbo - Text to Image.json"],
+    ["image_z_image.json", "Z-Image Base - Text to Image.json"],
+    ["image_krea2_turbo_t2i_int8.json", "Krea 2 Turbo - Text to Image.json"],
+    ["image_qwen_image_2_1_t2i.json", "Qwen Image 2.1 - Text to Image.json"],
+    ["image_qwen_image_2_1_image_edit.json", "Qwen Image 2.1 - Image Edit.json"],
+    ["image_anima_base_v1.json", "Anima Base v1 - Text to Image.json"]
+  ],
+  "templates": "python_embeded\\Lib\\site-packages\\comfyui_workflow_templates_json\\templates",
+  "comfyui": {
+    "leave_out_app_folders": ["models", "input", "output", "temp", "user"],
+    "leave_out_app_files": ["extra_model_paths.yaml", "custom_nodes\\was-node-suite-comfyui\\was_suite_config.json",
+                            "custom_nodes\\ComfyUI-Impact-Pack\\impact-pack.ini"],
+    "leave_out_folders": ["ComfyUI\\custom_nodes\\.disabled", ".app_activity"],
+    "leave_out_names": ["before-update-*", "__pycache__"],
+    "leave_out_files": ["*.pyc", "*.log"],
+    "empty_folders": ["input", "output", "temp", "models"],
+    "user_files": ["default\\ComfyUI-Impact-Subpack\\model-whitelist.txt", "__manager\\channels.list"],
+    "manager_update_policy": "stable-comfyui"
+  },
+  "comfyui_pip": ["numba==0.68.0", "llvmlite==0.50.0"]
+}

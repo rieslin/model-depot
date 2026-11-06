@@ -8,8 +8,9 @@
 - aiohttp's own reading of proxy variables is off (trust_env): the route is the one the settings name, direct, through
   a proxy, or through the proxy Windows is set to use (read at each request, netroute.py), also after a redirect.
 - Someone waiting (a model's page, its example images, a pasted link) is not kept waiting by a network that hangs:
-  those requests give up after a few seconds and are not tried again, and a host that failed is not asked again for a
-  minute (the answer is "unreachable" at once). On a friend's computer on 2026-10-18 every click waited minutes.
+  those requests give up after a few seconds and are not tried again, and a host that failed is not asked again for
+  the cooldown, a minute (the answer is "unreachable" at once); the time limits are advanced settings (network.*).
+  On a friend's computer on 2026-10-18 every click waited minutes.
   Once civitai is known to be unreachable (the library probes it at start and when a request fails), the program's
   own requests (opening a model, example images, background work) are answered "unreachable" at once, with no further
   attempts of its own: only what the user asks for by hand (Retry, a pasted link, a connection test) is tried (force),
@@ -31,27 +32,68 @@ from urllib.parse import urljoin, urlsplit
 
 import aiohttp
 
-from . import __version__, version_info
+from . import __version__, advanced, config, version_info
 
 log = logging.getLogger("depot.civitai")
 
-CIVITAI_HOSTS = ("civitai.com", "civitai.red")
+USER_AGENT = "ModelDepot/%s" % __version__
+# The domains whose links and API answers count as civitai's own.
+CIVITAI_DOMAINS = ("civitai.com", "civitai.red", "civitai.green")
+# The only hosts the API key is ever sent to, and only over https: a safety boundary, not a setting.
+KEY_HOSTS = ("civitai.com", "civitai.red")
 BATCH_SIZE = 100
 MAX_JSON_BYTES = 128 * 1024 * 1024
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
-_RETRY_DELAYS = (3.0, 10.0)
 _MAX_REDIRECTS = 5
-# A download may take hours: no limit on the whole, but a stalled connection is given up after a minute.
-_STREAM_TIMEOUT = aiohttp.ClientTimeout(total=None, sock_connect=20, sock_read=60)
-# Someone is waiting: a model page is about 200 KB and civitai answers within a second or two when it can be reached.
-_QUICK_TIMEOUT = aiohttp.ClientTimeout(total=12, sock_connect=5, sock_read=6)
-# An example image fills in on the page while nobody waits on it. A dead route still shows at the connection; civitai's
-# image host can take 20 s or more over an address it has not served lately.
-_PICTURE_TIMEOUT = aiohttp.ClientTimeout(total=60, sock_connect=5, sock_read=45)
-# After a host could not be reached, requests someone waits for are answered "unreachable" at once for this long;
-# when two hosts are down together, the route itself is (a proxy that died, a VPN switched off), and all of them are.
-COOLDOWN = 60.0
-_CIVITAI_DOMAINS = ("civitai.com", "civitai.red", "civitai.green")
+
+
+def _timeout(kind):
+    get = advanced.get
+    return aiohttp.ClientTimeout(total=get("network.%s_total" % kind), sock_connect=get("network.%s_connect" % kind),
+                                 sock_read=get("network.%s_read" % kind))
+
+
+def quick_timeout():
+    """Someone is waiting: a model page is about 200 KB and civitai answers within a second or two when it can be
+    reached."""
+    return _timeout("quick")
+
+
+def picture_timeout():
+    """An example image fills in on the page while nobody waits on it. A dead route still shows at the connection;
+    civitai's image host can take 20 s or more over an address it has not served lately."""
+    return _timeout("picture")
+
+
+def background_timeout():
+    return aiohttp.ClientTimeout(total=advanced.get("network.background_total"),
+                                 connect=advanced.get("network.background_connect"))
+
+
+def stream_timeout():
+    """A download may take hours: no limit on the whole, but a stalled connection is given up."""
+    return aiohttp.ClientTimeout(total=None, sock_connect=advanced.get("network.stream_connect"),
+                                 sock_read=advanced.get("network.stream_read"))
+
+
+def model_url(site, model_id):
+    """A model's page on a civitai site."""
+    return "%s/models/%s" % (site, model_id)
+
+
+def version_url(site, model_id, version_id):
+    """A model's page on a civitai site, opened at one of its versions."""
+    return "%s/models/%s?modelVersionId=%s" % (site, model_id, version_id)
+
+
+def download_url(site, version_id, file_id):
+    """civitai's download address of one file of a version."""
+    return "%s/api/download/models/%d?fileId=%d" % (site, version_id, file_id)
+
+
+def is_civitai_domain(host):
+    """Is this host name (lower case) one of civitai's domains, or under one?"""
+    return any(host == d or host.endswith("." + d) for d in CIVITAI_DOMAINS)
 
 
 class CivitaiError(Exception):
@@ -72,12 +114,17 @@ class CivitaiError(Exception):
 
 
 class Throttle:
-    """Lets one caller through every `interval` seconds."""
+    """Lets one caller through every `interval` seconds (a number, or a function that gives it at each call)."""
 
     def __init__(self, interval):
-        self.interval = max(0.0, float(interval))
+        self._interval = interval
         self._lock = asyncio.Lock()
         self._last = 0.0
+
+    @property
+    def interval(self):
+        value = self._interval() if callable(self._interval) else self._interval
+        return max(0.0, float(value))
 
     async def wait(self):
         async with self._lock:
@@ -96,8 +143,7 @@ def _netloc(url):
 
 
 def _is_civitai_host(url):
-    host = _host(url)
-    return any(host == d or host.endswith("." + d) for d in _CIVITAI_DOMAINS)
+    return is_civitai_domain(_host(url))
 
 
 def _message(body):
@@ -115,19 +161,24 @@ def _message(body):
 
 
 class CivitaiClient:
-    def __init__(self, sites, token="", proxy=None, request_interval=2.0, image_interval=1.0, token_hosts=None,
-                 retry_delays=_RETRY_DELAYS, sample_interval=0.25, preview_interval=1.0, on_down=None, on_up=None):
+    def __init__(self, sites, token="", proxy=None, request_interval=None, image_interval=None, token_hosts=None,
+                 retry_delays=None, sample_interval=None, preview_interval=None, on_down=None, on_up=None):
+        """The intervals and retry_delays left at None come from the settings: request_interval and image_interval
+        from config.defaults(), the rest from the advanced settings, read at each request."""
         self.sites = [s.rstrip("/") for s in sites]
         self._token = token or ""
         self._proxy_source = proxy      # an address, or a function giving the one to use now (the system's)
-        self._api_throttle = Throttle(request_interval)
-        self._image_throttle = Throttle(image_interval)
+        shipped = config.defaults()["civitai"]
+        self._api_throttle = Throttle(shipped["request_interval"] if request_interval is None else request_interval)
+        self._image_throttle = Throttle(shipped["image_interval"] if image_interval is None else image_interval)
         # Example images are fetched while someone looks at the page, as civitai's own page would load them: closer
         # together than the covers made in the background, and with one quick retry instead of the long ones.
-        self._sample_throttle = Throttle(sample_interval)
+        self._sample_throttle = Throttle(
+            (lambda: advanced.get("civitai.sample_interval")) if sample_interval is None else sample_interval)
         # Reading a pasted link is the same: someone is waiting for the preview.
-        self._preview_throttle = Throttle(preview_interval)
-        self._retry_delays = tuple(retry_delays)
+        self._preview_throttle = Throttle(
+            (lambda: advanced.get("civitai.preview_interval")) if preview_interval is None else preview_interval)
+        self._retry_delays = None if retry_delays is None else tuple(retry_delays)
         # Tests point the client at a stand-in server and name its host (or host:port) here. Nothing in the settings
         # can.
         self._extra_token_hosts = frozenset(h.lower() for h in (token_hosts or ()))
@@ -149,7 +200,16 @@ class CivitaiClient:
         source = self._proxy_source
         return (source() if callable(source) else source) or None
 
+    def _delays(self):
+        """The waits before each retry of a background request."""
+        if self._retry_delays is not None:
+            return self._retry_delays
+        return tuple(advanced.get("civitai.retry_delays"))
+
     # ---- who can be reached ----------------------------------------------------------------------------------------
+    # After a host could not be reached, requests are answered "unreachable" at once for the cooldown
+    # (network.cooldown); when two hosts are down together, the route itself is (a proxy that died, a VPN switched
+    # off), and all of them are.
     def _cooling(self, host):
         if self.offline:
             return True
@@ -158,7 +218,7 @@ class CivitaiClient:
         return host in down or len(down) >= 2
 
     def _note_down(self, host):
-        self._down[host] = time.monotonic() + COOLDOWN
+        self._down[host] = time.monotonic() + advanced.get("network.cooldown")
         self._last_seen = time.time()
         if self._on_down is not None and not self.offline:
             self._on_down()
@@ -177,8 +237,8 @@ class CivitaiClient:
                 self._preferred = site
 
     def reachability(self):
-        """{"state": "ok" | "down" | "unknown", "checked_at": time.time() of the last answer or failure}: down when it is
-        known unreachable, or every site failed within the last minute."""
+        """{"state": "ok" | "down" | "unknown", "checked_at": time.time() of the last answer or failure}: down when
+        it is known unreachable, or every site failed within the cooldown."""
         now = time.monotonic()
         down = self.offline or all(self._down.get(_netloc(s), 0) > now for s in self.sites)
         state = "down" if down else ("ok" if self._last_ok else "unknown")
@@ -192,8 +252,8 @@ class CivitaiClient:
         self.offline = False
 
     async def probe(self):
-        """Ask each site for one small answer (the model list, one entry), at once, whatever the cooldown says. True when
-        any site answered; a site that failed counts as down for another minute."""
+        """Ask each site for one small answer (the model list, one entry), at once, whatever the cooldown says. True
+        when any site answered; a site that failed counts as down for another cooldown."""
         async def one(site):
             try:
                 status, _ctype, _payload = await self._call("GET", site + "/api/v1/models?limit=1",
@@ -206,7 +266,7 @@ class CivitaiClient:
         return any(results)
 
     def unreachable(self):
-        """The hosts that failed within the last minute, with the seconds left before they are asked again."""
+        """The hosts that failed within the cooldown, with the seconds left before they are asked again."""
         now = time.monotonic()
         return {h: round(until - now) for h, until in self._down.items() if until > now}
 
@@ -224,10 +284,8 @@ class CivitaiClient:
     # ---- plumbing --------------------------------------------------------------------------------------------------
     def _get_session(self):
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                trust_env=False,
-                headers={"User-Agent": "ModelDepot/%s" % __version__},
-                timeout=aiohttp.ClientTimeout(total=120, connect=20))
+            # every request names its own time limits (background_timeout and the others), read when it is made
+            self._session = aiohttp.ClientSession(trust_env=False, headers={"User-Agent": USER_AGENT})
         return self._session
 
     async def close(self):
@@ -240,7 +298,7 @@ class CivitaiClient:
         host = (parts.hostname or "").lower()
         if host in self._extra_token_hosts or (parts.netloc or "").lower() in self._extra_token_hosts:
             return True
-        return parts.scheme == "https" and host in CIVITAI_HOSTS
+        return parts.scheme == "https" and host in KEY_HOSTS
 
     def _login_error(self, carried):
         """The code for a download that asked for a login: the key that went along was refused, there is no key, or
@@ -261,9 +319,9 @@ class CivitaiClient:
             if carried:
                 headers["Authorization"] = "Bearer " + self._token
             self.requests_made += 1
-            extra = {"timeout": timeout} if timeout is not None else {}
             async with self._get_session().request(method, url, data=data, headers=headers, proxy=proxy,
-                                                   allow_redirects=False, **extra) as resp:
+                                                   allow_redirects=False,
+                                                   timeout=timeout or background_timeout()) as resp:
                 if resp.status in (301, 302, 303, 307, 308) and resp.headers.get("Location"):
                     target = urljoin(url, resp.headers["Location"])
                     if resp.status == 303 or (resp.status in (301, 302) and method != "GET"):
@@ -284,11 +342,11 @@ class CivitaiClient:
                     quick=False, force=False, timeout=None):
         """_fetch with the waiting and the retries: spaced out, tried again after a hiccup, never hammering.
 
-        A host that failed within the last minute is not asked (CivitaiError "network" at once) unless `force` (the user
+        A host that failed within the cooldown is not asked (CivitaiError "network" at once) unless `force` (the user
         asked by hand). quick: someone is waiting; the request gives up after a few seconds, and a network failure is
         not tried again."""
         throttle = throttle or self._api_throttle
-        delays = self._retry_delays if retry_delays is None else tuple(retry_delays)
+        delays = self._delays() if retry_delays is None else tuple(retry_delays)
         attempts = len(delays) + 1
         host, where = _host(url), _netloc(url)
         if not force and self._cooling(where):
@@ -298,7 +356,7 @@ class CivitaiClient:
             await throttle.wait()
             try:
                 status, ctype, payload, final, carried = await self._fetch(
-                    method, url, body, auth, limit, timeout=timeout or (_QUICK_TIMEOUT if quick else None))
+                    method, url, body, auth, limit, timeout=timeout or (quick_timeout() if quick else None))
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 last = CivitaiError("network", type(e).__name__)
                 self._note_down(where)
@@ -378,8 +436,9 @@ class CivitaiClient:
         waiting for. The API key is never sent with image requests."""
         if interactive:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
-                                                      throttle=self._sample_throttle, retry_delays=(1.0,), quick=True,
-                                                      force=force, timeout=_PICTURE_TIMEOUT)
+                                                      throttle=self._sample_throttle,
+                                                      retry_delays=(advanced.get("civitai.interactive_retry_delay"),),
+                                                      quick=True, force=force, timeout=picture_timeout())
         else:
             status, ctype, payload = await self._call("GET", url, auth=False, limit=MAX_IMAGE_BYTES,
                                                       throttle=self._image_throttle)
@@ -416,7 +475,7 @@ class CivitaiClient:
             self.requests_made += 1
             try:
                 resp = await session.get(url, headers={"Accept": "*/*"}, proxy=self.proxy, allow_redirects=False,
-                                         timeout=_STREAM_TIMEOUT)
+                                         timeout=stream_timeout())
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 self._note_down(where)
                 raise CivitaiError("network", type(e).__name__) from e
@@ -448,7 +507,7 @@ class CivitaiClient:
         """(site, JSON object) from the first site in the settings that knows `path`; a site that cannot be reached
         is passed over for the next. Someone is waiting, so the requests are spaced as for a page and tried again
         once, soon."""
-        soon = tuple(min(1.0, d) for d in self._retry_delays[:1])
+        soon = tuple(min(advanced.get("civitai.interactive_retry_delay"), d) for d in self._delays()[:1])
         trouble = missing = None
         sites = sorted(self.sites, key=lambda s: s != self._preferred)      # the one that answered last, first
         for site in sites:
@@ -505,7 +564,7 @@ class CivitaiClient:
             self.requests_made += 1
             try:
                 resp = await session.get(url, headers=headers, proxy=self.proxy, allow_redirects=False,
-                                         timeout=_STREAM_TIMEOUT)
+                                         timeout=stream_timeout())
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 raise CivitaiError("network", type(e).__name__) from e
             status = resp.status

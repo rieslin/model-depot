@@ -10,14 +10,15 @@ comfyui_own is false when the setup used a portable ComfyUI already on the compu
 import logging
 import os
 
-from . import comfy, reader
+from . import comfy, llm_install, reader, strings
 
 log = logging.getLogger("depot.install")
 
 
 def llm_files(llm_dir):
-    """The GGUF files in the local model's folder (<llm_dir>/models), largest first."""
-    folder = os.path.join(llm_dir, "models")
+    """The GGUF files in the local model's folder (<llm_dir>/models), largest first; not a vision model's projector
+    (mmproj), which is no model to read with."""
+    folder = llm_install.models_in(llm_dir)
     try:
         names = [n for n in os.listdir(folder) if n.lower().endswith(".gguf") and not n.lower().startswith("mmproj")]
     except OSError:
@@ -28,7 +29,7 @@ def llm_files(llm_dir):
 
 def pick_llm(paths):
     """The file to read the authors' notes with: one of the recommended models when it is there, else the largest."""
-    known = {m["file"].lower() for m in reader.MODELS.values()}
+    known = {m["file"].lower() for m in reader.models().values()}
     for path in paths:
         if os.path.basename(path).lower() in known:
             return path
@@ -41,7 +42,7 @@ def seed(cfg, info):
     if cfg.exists or not info:
         return False
     changes = {}
-    if info.get("language") in ("zh", "en"):
+    if info.get("language") in strings.LANGS:
         changes["language"] = info["language"]
     comfy_dir, models_dir = str(info.get("comfyui_dir") or ""), str(info.get("models_dir") or "")
     if comfy_dir:
@@ -52,7 +53,7 @@ def seed(cfg, info):
                                   for f in found["folders"]]
     llm_dir = str(info.get("llm_dir") or "")
     if llm_dir:
-        server = os.path.join(llm_dir, "llama.cpp", "llama-server.exe")
+        server = llm_install.server_in(llm_dir)
         managed = {"server": server if os.path.isfile(server) else ""}
         model = pick_llm(llm_files(llm_dir))
         rd = {"install_dir": llm_dir, "managed": managed}

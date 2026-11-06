@@ -2,21 +2,20 @@
 already has, and where a download would go.
 
 A model's data comes from civitai's model page API (one request, every version with its files and example images)
-and is kept for ten minutes, so pasting the same link again, opening another version, or adding it to the queue asks
-nothing more of civitai. A version link needs one request more, to learn its model.
+and is kept a while (civitai.preview_cache, ten minutes), so pasting the same link again, opening another version, or
+adding it to the queue asks nothing more of civitai. A version link needs one request more, to learn its model.
 """
 import asyncio
 import logging
 import os
 import time
 
-from . import families, folders, kinds, thumbs, version_info
-from .civitai import CivitaiError
+from . import advanced, families, folders, kinds, thumbs, version_info
+from .civitai import CivitaiError, model_url
 from .store import write_atomic
 
 log = logging.getLogger("depot.intake")
 
-CACHE_SECONDS = 600
 PREVIEW_IMAGES = 8          # example images offered per version in a preview
 
 
@@ -79,12 +78,12 @@ class Intake:
                     raise CivitaiError("not_found", "version without a model")
                 self._owner[version_id] = model_id
         cached = self._models.get(model_id)
-        if cached and time.time() - cached[0] < CACHE_SECONDS:
+        if cached and time.time() - cached[0] < advanced.get("civitai.preview_cache"):
             return cached[1], cached[2]
         lock = self._locks.setdefault(model_id, asyncio.Lock())
         async with lock:
             cached = self._models.get(model_id)
-            if cached and time.time() - cached[0] < CACHE_SECONDS:
+            if cached and time.time() - cached[0] < advanced.get("civitai.preview_cache"):
                 return cached[1], cached[2]
             site, model = await self.library.client().get_model(model_id, force=True)     # the user pasted the link
             self._models[model_id] = (time.time(), site, model)
@@ -127,7 +126,7 @@ class Intake:
                 "kind": kinds.kind_of(main_type) if main_type else "other", "comfy_type": main_type,
                 "creator": creator.get("username"), "nsfw": bool(model.get("nsfw")),
                 "availability": model.get("availability"), "mode": model.get("mode"),
-                "url": "%s/models/%s" % (site, model.get("id")),
+                "url": model_url(site, model.get("id")),
             },
             "linked_version": version_id if any(v["id"] == version_id for v in out_versions) else None,
             "selected": selected,

@@ -31,24 +31,9 @@ const WORDS = {
   comfy_nodes_some: ['插件：缺少 {m} 个（共 {n} 个）', 'Custom nodes: {m} of {n} missing'],
   comfy_older: ['版本较旧，部分默认工作流可能无法使用', 'An older version: some default workflows may not work'],
   comfy_library: ['模型库：沿用其模型文件夹', 'Model library: its models folder'],
-  comfy_workflows: ['工作流：{k} 个放入「Model Depot」文件夹', 'Workflows: {k} into a "Model Depot" folder'],
+  comfy_workflows: ['工作流：{k} 个放入「{workflow_folder}」文件夹', 'Workflows: {k} into a "{workflow_folder}" folder'],
   comfy_missing_note: ['工作流放入单独的文件夹，原有文件不变。缺少的插件可在安装完成后经 ComfyUI 管理器安装，补齐之前用到它们的功能无法使用。',
     'The workflows go into a folder of their own; nothing already there changes. The missing custom nodes can be installed afterwards with ComfyUI Manager; the features that use them do not work until then.'],
-  nodes: {
-    'ComfyUI-GGUF': ['GGUF 格式模型的加载', 'Loading GGUF models'],
-    'ComfyUI-Crystools': ['资源监视与图像信息', 'Resource monitor and image details'],
-    'ComfyUI-Impact-Pack': ['细节修复（人脸、手部）', 'Detail fixing (faces, hands)'],
-    'ComfyUI-Impact-Subpack': ['细节修复所用的检测模型', 'Detection models for detail fixing'],
-    'ComfyUI-KJNodes': ['常用辅助节点：尺寸、遮罩与批处理', 'Common helpers: sizes, masks, batches'],
-    'ComfyUI-Krea2-Ostris-Edit': ['Krea 2 图像编辑', 'Krea 2 image editing'],
-    'ComfyUI-PixAI-Tagger': ['图片标签读取（PixAI）', 'Image tags (PixAI)'],
-    'ComfyUI_UltimateSDUpscale': ['分块放大', 'Tiled upscaling'],
-    'ComfyUI_essentials': ['基础图像处理节点', 'Essential image nodes'],
-    'comfyui_controlnet_aux': ['ControlNet 预处理（姿势、深度、线稿）', 'ControlNet preprocessors (pose, depth, lines)'],
-    'rgthree-comfy': ['工作流整理与开关', 'Workflow tidying and switches'],
-    'seedvr2_videoupscaler': ['SeedVR2 放大', 'SeedVR2 upscaling'],
-    'was-node-suite-comfyui': ['通用图像与文本节点', 'General image and text nodes'],
-  },
   where_title: ['安装位置', 'Installation folder'],
   where_lead: ['Model Depot、ComfyUI 与本地模型运行程序安装在同一文件夹中。路径中不宜包含中文或其他非英文字符。',
     'Model Depot, ComfyUI and the local model runtime are installed in one folder. Use a path with English characters only.'],
@@ -59,7 +44,7 @@ const WORDS = {
   need: ['需要 {n}', '{n} required'],
   free: ['该磁盘可用 {n}', '{n} free on this drive'],
   gpu_ok: ['显卡：{name}，驱动 {driver}', 'Graphics: {name}, driver {driver}'],
-  gpu_old: ['显卡：{name}，驱动 {driver}（需要 580 或更新）', 'Graphics: {name}, driver {driver} (580 or later needed)'],
+  gpu_old: ['显卡：{name}，驱动 {driver}（需要 {min_driver} 或更新）', 'Graphics: {name}, driver {driver} ({min_driver} or later needed)'],
   gpu_none: ['未检测到 NVIDIA 显卡', 'No NVIDIA graphics card found'],
   upgrade: ['此电脑已安装 Model Depot。程序文件将在原位置更新，设置、资料与模型保留。',
     'Model Depot is already installed on this computer. Its program files are updated in place; settings, records and models are kept.'],
@@ -68,7 +53,7 @@ const WORDS = {
   part_comfy: ['ComfyUI {c}', 'ComfyUI {c}'],
   part_comfy_note: ['含 {nodes} 个插件、{official} 个默认工作流与 {optional} 个可选工作流',
     'With {nodes} custom nodes, {official} default workflows and {optional} optional ones'],
-  part_comfy_existing: ['沿用 {p}；工作流放入其中的「Model Depot」文件夹', 'Uses {p}; the workflows go into its "Model Depot" folder'],
+  part_comfy_existing: ['沿用 {p}；工作流放入其中的「{workflow_folder}」文件夹', 'Uses {p}; the workflows go into its "{workflow_folder}" folder'],
   part_llm: ['本地模型运行程序', 'Local model runtime'],
   part_llm_note: ['llama.cpp，用于读取作者说明', 'llama.cpp, for reading the authors\' notes'],
   part_tagger: ['PixAI 打标模型', 'PixAI Tagger'],
@@ -81,10 +66,10 @@ const WORDS = {
     'The chosen ComfyUI\'s models folder: ComfyUI and Model Depot both read models from here.'],
   data_label: ['数据文件夹', 'Data folder'],
   data_help: ['Model Depot 的设置、资料卡与封面。', 'Model Depot\'s settings, model cards and covers.'],
-  inbox_some: ['安装包旁的 Model Inbox 文件夹中有 <b>{n}</b> 个模型文件，共 <b>{size}</b>。首次打开 Model Depot 时列出整理清单，确认后移入模型库。',
-    'The Model Inbox folder next to this setup holds <b>{n}</b> model files, <b>{size}</b> in all. When Model Depot first opens, it lists where each will go and moves them into the library once confirmed.'],
-  inbox_none: ['模型文件可放入安装位置的 Model Inbox 文件夹。Model Depot 打开时列出整理清单，确认后移入模型库。',
-    'Model files can be put into the Model Inbox folder of the installation. When Model Depot opens, it lists where each will go and moves them into the library once confirmed.'],
+  inbox_some: ['安装包旁的 {inbox} 文件夹中有 <b>{n}</b> 个模型文件，共 <b>{size}</b>。首次打开 Model Depot 时列出整理清单，确认后移入模型库。',
+    'The {inbox} folder next to this setup holds <b>{n}</b> model files, <b>{size}</b> in all. When Model Depot first opens, it lists where each will go and moves them into the library once confirmed.'],
+  inbox_none: ['模型文件可放入安装位置的 {inbox} 文件夹。Model Depot 打开时列出整理清单，确认后移入模型库。',
+    'Model files can be put into the {inbox} folder of the installation. When Model Depot opens, it lists where each will go and moves them into the library once confirmed.'],
   installing: ['正在安装', 'Installing'],
   installing_lead: ['安装期间无需联网。', 'No internet connection is needed.'],
   unpacking: ['正在安装 {part}', 'Installing {part}'],
@@ -100,19 +85,19 @@ const WORDS = {
   done_note: ['首次打开时依次完成设置（语言、civitai 密钥与网络）与模型整理。',
     'The first time it opens, Model Depot asks for its settings (language, civitai key and network), then sorts the models.'],
   failed_title: ['安装未完成', 'Installation did not finish'],
-  failed_lead: ['已复制的文件已删除。安装包与 Model Inbox 文件夹中的模型不受影响。', 'The files copied so far were removed. This setup and the Model Inbox folder were not touched.'],
+  failed_lead: ['已复制的文件已删除。安装包与 {inbox} 文件夹中的模型不受影响。', 'The files copied so far were removed. This setup and the {inbox} folder were not touched.'],
   cancelled_title: ['安装已取消', 'Installation cancelled'],
   cancel: ['取消', 'Cancel'], next: ['下一步', 'Next'], back: ['上一步', 'Back'], install: ['安装', 'Install'],
   finish: ['完成', 'Finish'], close: ['关闭', 'Close'], retry: ['返回', 'Back'],
   ask_old_title: ['显卡驱动版本较旧', 'The graphics driver is out of date'],
-  ask_old: ['当前 NVIDIA 驱动为 {driver}。ComfyUI 与本地模型需要 580 或更新的版本，否则无法使用显卡。可先从 NVIDIA 官网更新驱动，再继续安装。',
-    'The NVIDIA driver is version {driver}. ComfyUI and the local model need version 580 or later to use the graphics card. Update the driver from NVIDIA\'s website, then continue.'],
+  ask_old: ['当前 NVIDIA 驱动为 {driver}。ComfyUI 与本地模型需要 {min_driver} 或更新的版本，否则无法使用显卡。可先从 NVIDIA 官网更新驱动，再继续安装。',
+    'The NVIDIA driver is version {driver}. ComfyUI and the local model need version {min_driver} or later to use the graphics card. Update the driver from NVIDIA\'s website, then continue.'],
   ask_none_title: ['未检测到 NVIDIA 显卡', 'No NVIDIA graphics card found'],
-  ask_none: ['ComfyUI 与本地模型需要 NVIDIA 显卡（RTX 20 系列或更新）。没有 NVIDIA 显卡时，Model Depot 的模型库管理与下载仍可使用。',
-    'ComfyUI and the local model need an NVIDIA graphics card (RTX 20 series or later). Without one, Model Depot\'s library and downloads still work.'],
+  ask_none: ['ComfyUI 与本地模型需要 NVIDIA 显卡（{min_gpu} 系列或更新）。没有 NVIDIA 显卡时，Model Depot 的模型库管理与下载仍可使用。',
+    'ComfyUI and the local model need an NVIDIA graphics card ({min_gpu} series or later). Without one, Model Depot\'s library and downloads still work.'],
   quit: ['退出安装', 'Quit Setup'], anyway: ['仍然安装', 'Install Anyway'],
   ask_cancel_title: ['取消安装', 'Cancel installation'],
-  ask_cancel: ['已复制的文件将删除。安装包与 Model Inbox 文件夹中的模型不受影响。', 'The files copied so far are removed. This setup and the Model Inbox folder are not touched.'],
+  ask_cancel: ['已复制的文件将删除。安装包与 {inbox} 文件夹中的模型不受影响。', 'The files copied so far are removed. This setup and the {inbox} folder are not touched.'],
   keep_going: ['继续安装', 'Continue'], stop_install: ['取消安装', 'Cancel Installation'],
   problem: {
     bad_path: ['路径无效。', 'This path is not valid.'],
@@ -148,17 +133,21 @@ const WORDS = {
 };
 
 let LANG = 0;               // 0 Chinese, 1 English
+// the product's values the sentences name (folder names, the oldest driver and cards), from the window's answer
+let NAMED = {};
 function t(key, vars) {
   let row = key.split('.').reduce((o, k) => (o ? o[k] : undefined), WORDS);
   let text = Array.isArray(row) ? row[LANG] : key;
-  if (vars) text = String(text).replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m));
-  return text;
+  if (typeof text !== 'string') return text;      // a list of words (the steps)
+  const all = Object.assign({}, NAMED, vars || {});
+  return text.replace(/\{(\w+)\}/g, (m, k) => (all[k] !== undefined ? all[k] : m));
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // a sentence with markup of its own (bold numbers) and values that are text
 function th(key, vars) {
+  const all = Object.assign({}, NAMED, vars || {});
   const safe = {};
-  for (const k in vars || {}) safe[k] = esc(vars[k]);
+  for (const k in all) safe[k] = esc(all[k]);
   return t(key, safe);
 }
 
@@ -280,13 +269,16 @@ function pickFolder(start) {
   });
 }
 
-const APP_FOLDER = 'Model Depot';
-
-// The installation goes into a folder of its own: a folder picked for it gets "Model Depot" inside it, unless it is one.
+// The installation goes into a folder of its own: a folder picked for it gets the program's folder inside it, unless it
+// is one.
 function ownFolder(path) {
   const trimmed = path.replace(/[\\/]+$/, '');
-  return /(^|[\\/])model depot$/i.test(trimmed) ? trimmed : trimmed + '\\' + APP_FOLDER;
+  const name = info.product.app_folder || '';
+  return trimmed.split(/[\\/]/).pop().toLowerCase() === name.toLowerCase() ? trimmed : trimmed + '\\' + name;
 }
+
+// A place of the installation's layout (the window's info.layout) under the folder chosen.
+function under(install, rel) { return install.replace(/[\\/]+$/, '') + '\\' + rel; }
 
 function field(label, key, help, onPick) {
   const input = h('input', { type: 'text', value: form[key], spellcheck: 'false' });
@@ -347,7 +339,7 @@ let comfyProblem = '';      // the folder picked by hand was not one
 function chooseExisting(found) { comfyFound = found; form.comfy = found.path; form.library = found.models; }
 function chooseBundled() {
   form.comfy = '';
-  if (!form.libraryEdited) form.library = form.install.replace(/[\\/]+$/, '') + '\\ComfyUI\\ComfyUI\\models';
+  if (!form.libraryEdited) form.library = under(form.install, info.layout.library);
 }
 
 async function pickComfy(e) {
@@ -361,6 +353,12 @@ async function pickComfy(e) {
     comfyProblem = t('problem.' + (err.code === 'not_comfyui' ? 'not_comfyui' : 'failed'), { detail: err.detail || err.code });
   }
   stepComfy();
+}
+
+// What a custom node the package carries does, in the page's language (installer\build.json, through the window).
+function nodeAbout(name) {
+  const node = (info.product.custom_nodes || {})[name];
+  return node && Array.isArray(node.about) ? node.about[LANG] || '' : '';
 }
 
 function choiceRow(on, off, title, note, end, onpick) {
@@ -390,7 +388,7 @@ function stepComfy() {
       h('li', null, t('comfy_library')),
       h('li', null, t('comfy_workflows', { k: (counts.official || 0) + (counts.optional || 0) }))),
     missing.length ? h('div', { class: 'ch-missing' },
-      h('ul', { class: 'su-list' }, missing.map((name) => h('li', null, h('span', null, name), h('small', null, WORDS.nodes[name] ? t('nodes.' + name) : '')))),
+      h('ul', { class: 'su-list' }, missing.map((name) => h('li', null, h('span', null, name), h('small', null, nodeAbout(name))))),
       h('p', { class: 'su-note' }, t('comfy_missing_note'))) : null) : null;
   body(
     h('h2', null, t('comfy_title')),
@@ -414,9 +412,8 @@ function stepWhere() {
     h('h2', null, t('where_title')),
     h('p', { class: 'su-lead' }, t(form.comfy ? 'where_lead_existing' : 'where_lead')),
     field(t('where_label'), 'install', null, () => {
-      const root = form.install.replace(/[\\/]+$/, '');
-      if (!form.libraryEdited && !form.comfy) form.library = root + '\\ComfyUI\\ComfyUI\\models';
-      if (!form.dataEdited) form.data = root + '\\data';
+      if (!form.libraryEdited && !form.comfy) form.library = under(form.install, info.layout.library);
+      if (!form.dataEdited) form.data = under(form.install, info.layout.data);
     }),
     h('ul', { class: 'facts' }, h('li', null, t('need', { n: gb(info.bytes - (form.comfy ? partBytes('comfyui') : 0)) })), h('li', { id: 'facts-free' }, ''), gpuLine()),
     info.upgrade ? h('p', { class: 'su-note' }, t('upgrade')) : null,
@@ -427,7 +424,8 @@ function stepWhere() {
         : h('li', null, h('span', null, t('part_comfy', { c: info.comfyui }), h('small', null, t('part_comfy_note', { nodes: counts.custom_nodes || 0, official: counts.official || 0, optional: counts.optional || 0 }))),
           h('span', { class: 'size' }, gb(partBytes('comfyui', 'workflows')))),
       h('li', null, h('span', null, t('part_llm'), h('small', null, t('part_llm_note'))), h('span', { class: 'size' }, gb(partBytes('llm')))),
-      partBytes('library') ? h('li', null, h('span', null, t('part_tagger'), h('small', null, 'pixai-tagger-v1.0')), h('span', { class: 'size' }, gb(partBytes('library')))) : null));
+      partBytes('library') ? h('li', null, h('span', null, t('part_tagger'),
+        h('small', null, (info.product.bundled_models || []).map((p) => p.split('/').pop()).join(', '))), h('span', { class: 'size' }, gb(partBytes('library')))) : null));
   actions(btn(t('back'), 'line', () => stepComfy()), grow(), btn(t('cancel'), 'line', closeWindow), btn(t('next'), 'solid', () => stepData(), { id: 'btn-next', disabled: true }));
   recheck();
 }
@@ -449,7 +447,7 @@ function stepData() {
     form.comfy ? fixedField(t('library_label'), 'library', t('library_fixed'))
       : field(t('library_label'), 'library', t('library_help'), () => { form.libraryEdited = true; }),
     field(t('data_label'), 'data', t('data_help'), () => { form.dataEdited = true; }),
-    h('p', { class: 'su-note', html: inbox.files ? th('inbox_some', { n: inbox.files, size: gb(inbox.bytes) }) : t('inbox_none') }));
+    h('p', { class: 'su-note', html: inbox.files ? th('inbox_some', { n: inbox.files, size: gb(inbox.bytes) }) : th('inbox_none') }));
   actions(btn(t('back'), 'line', () => stepWhere()), grow(), btn(t('cancel'), 'line', closeWindow),
     btn(t('install'), 'solid', () => startInstall(), { id: 'btn-next', disabled: true }));
   recheck();
@@ -576,6 +574,8 @@ async function start() {
   if (params.get('lang')) LANG = params.get('lang') === 'en' ? 1 : 0;
   document.documentElement.lang = LANG ? 'en' : 'zh-CN';
   if (UNINSTALL) { stepRemove(); return; }
+  const p = info.product;
+  NAMED = { inbox: p.inbox_folder, workflow_folder: p.workflow_folder, min_driver: p.min_driver, min_gpu: p.min_gpu };
   Object.assign(form, info.defaults);
   // an existing ComfyUI is offered first; an update keeps the choice the installation made
   const c = info.comfy || { found: [], own: true };
@@ -587,39 +587,62 @@ async function start() {
 }
 
 // ---- the sample answers of ?demo ----------------------------------------------------------------------------------
+// Sample places, folders and a sample card. The product's own values (its version, folder names and custom nodes) are
+// the package's when the page is opened beside one (setup\manifest.json), else the repository's
+// (installer\build.json, depot\__init__.py).
 const Demo = {
-  info: {
-    mode: 'install', lang: 'zh', version: '0.6.6', comfyui: '0.42.5', upgrade: false,
-    parts: [{ name: 'app', bytes: 52e6 }, { name: 'python', bytes: 40e6 }, { name: 'llm', bytes: 700e6 }, { name: 'comfyui', bytes: 6.2e9 },
-      { name: 'library', bytes: 1.95e9 }, { name: 'workflows', bytes: 1e6 }],
-    bytes: 8.94e9, counts: { custom_nodes: 5, official: 6, optional: 20 },
-    comfy: { own: true, found: [{ path: 'D:\\ComfyUI_windows_portable', version: '0.37.0', older: false,
-      models: 'D:\\ComfyUI_windows_portable\\ComfyUI\\models', nodes: 12, missing: [] }] },
-    defaults: { install: 'D:\\Model Depot', library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data' },
-    gpu: { name: 'NVIDIA GeForce RTX 5070 Ti', driver: '616.92', ok: true, problem: '' },
-    inbox: { path: 'E:\\Model Depot Setup\\Model Inbox', files: 6, bytes: 41.0 * 1024 ** 3 },
+  info: null,
+  home: 'C:\\Users\\Example',
+  async load() {
+    const get = async (url, as) => { try { const r = await fetch(url); return r.ok ? await r[as]() : null; } catch (e) { return null; } };
+    const manifest = await get('../manifest.json', 'json');
+    const build = manifest ? null : await get('../../build.json', 'json');
+    const init = manifest ? '' : (await get('../../../depot/__init__.py', 'text')) || '';
+    const product = (manifest || build || {}).product || {};
+    const nodes = Object.keys(product.custom_nodes || {});
+    const layout = { library: 'ComfyUI\\ComfyUI\\models', data: 'data' };
+    const install = 'C:\\' + (product.app_folder || '');
+    const parts = manifest ? manifest.parts.map((p) => ({ name: p.name, bytes: p.bytes }))
+      : [{ name: 'app', bytes: 52e6 }, { name: 'python', bytes: 40e6 }, { name: 'llm', bytes: 700e6 }, { name: 'comfyui', bytes: 6.2e9 },
+        { name: 'library', bytes: 1.95e9 }, { name: 'workflows', bytes: 1e6 }];
+    const portable = this.home + '\\ComfyUI_windows_portable';
+    this.missing = nodes.slice(-3);
+    this.info = {
+      mode: 'install', lang: 'zh', upgrade: false, product, layout, parts,
+      version: manifest ? manifest.version : (/__version__ = "([^"]+)"/.exec(init) || [])[1] || '',
+      comfyui: manifest ? manifest.comfyui : '0.42.5',
+      bytes: parts.reduce((n, p) => n + p.bytes, 0),
+      counts: manifest ? manifest.counts : { custom_nodes: nodes.length, official: 6, optional: 20 },
+      comfy: { own: true, found: [{ path: portable, version: '0.37.0', older: false, models: portable + '\\ComfyUI\\models', nodes: nodes.length, missing: [] }] },
+      defaults: { install, library: under(install, layout.library), data: under(install, layout.data) },
+      gpu: { name: 'NVIDIA GeForce RTX 4060', driver: '581.57', ok: true, problem: '' },
+      inbox: { path: this.home + '\\Downloads\\Model Depot Setup\\' + (product.inbox_folder || ''), files: 6, bytes: 41.0 * 1024 ** 3 },
+    };
+    this.removing = { mode: 'uninstall', lang: 'zh', version: this.info.version, install,
+      kept: { library: under(install, layout.library), data: under(install, layout.data), inbox: under(install, product.inbox_folder || ''),
+        comfy_plugins: ['ComfyUI-KJNodes', 'rgthree-comfy'], comfy_user: under(install, 'ComfyUI\\ComfyUI') } };
   },
-  call(cmd, args) {
-    if (cmd === 'info') return Promise.resolve(UNINSTALL ? { mode: 'uninstall', lang: 'zh', version: '0.6.6', install: 'D:\\Model Depot',
-      kept: { library: 'D:\\Model Depot\\ComfyUI\\ComfyUI\\models', data: 'D:\\Model Depot\\data', inbox: 'D:\\Model Depot\\Model Inbox',
-        comfy_plugins: ['ComfyUI-OpenWorkflow', 'ComfyUI-Anima-Artists'],
-        comfy_user: 'D:\\Model Depot\\ComfyUI\\ComfyUI' } } : this.info);
+  async call(cmd, args) {
+    if (!this.info) await this.load();
+    if (cmd === 'info') return UNINSTALL ? this.removing : this.info;
     if (cmd === 'check') {
       const warn = /[^\x00-\x7f]/.test(args.install) ? [{ field: 'install', code: 'non_ascii' }] : [];
-      return Promise.resolve({ install: args.install, library: args.library, data: args.data, need: this.info.bytes, free: 193 * 1024 ** 3,
-        problems: [], warnings: warn });
+      return { install: args.install, library: args.library, data: args.data, need: this.info.bytes, free: 193 * 1024 ** 3,
+        problems: [], warnings: warn };
     }
     if (cmd === 'comfy') {
-      if (!/comfy/i.test(args.path)) return Promise.reject(Object.assign(new Error('not_comfyui'), { code: 'not_comfyui', detail: args.path }));
-      return Promise.resolve({ path: args.path.replace(/[\\/]+$/, ''), version: '0.36.2', older: true, models: args.path.replace(/[\\/]+$/, '') + '\\ComfyUI\\models',
-        nodes: 12, missing: ['ComfyUI-KJNodes', 'ComfyUI-PixAI-Tagger', 'seedvr2_videoupscaler'] });
+      if (!/comfy/i.test(args.path)) throw Object.assign(new Error('not_comfyui'), { code: 'not_comfyui', detail: args.path });
+      return { path: args.path.replace(/[\\/]+$/, ''), version: '0.36.2', older: true, models: args.path.replace(/[\\/]+$/, '') + '\\ComfyUI\\models',
+        nodes: this.info.counts.custom_nodes, missing: this.missing };
     }
-    if (cmd === 'list') return Promise.resolve({ path: args.path || '', parent: '', dirs: [{ name: 'Model Depot', path: 'D:\\Model Depot' }, { name: 'Games', path: 'D:\\Games' }] });
-    return Promise.resolve(true);
+    const install = this.info.defaults.install;
+    if (cmd === 'list') return { path: args.path || '', parent: '', dirs: [{ name: install.split('\\').pop(), path: install }, { name: 'Games', path: 'C:\\Games' }] };
+    return true;
   },
   show(step) {
-    if (step === 'comfy-missing') { chooseExisting({ path: 'E:\\AI\\ComfyUI_windows_portable', version: '0.36.2', older: true,
-      models: 'E:\\AI\\ComfyUI_windows_portable\\ComfyUI\\models', nodes: 12, missing: ['ComfyUI-KJNodes', 'ComfyUI-PixAI-Tagger', 'seedvr2_videoupscaler'] }); stepComfy(); }
+    const other = this.home + '\\AI\\ComfyUI_windows_portable';
+    if (step === 'comfy-missing') { chooseExisting({ path: other, version: '0.36.2', older: true,
+      models: other + '\\ComfyUI\\models', nodes: this.info.counts.custom_nodes, missing: this.missing }); stepComfy(); }
     else if (step === 'comfy-none') { comfyFound = null; chooseBundled(); stepComfy(); }
     else if (step === 'where') stepWhere();
     else if (step === 'data') stepData();
@@ -628,7 +651,7 @@ const Demo = {
     else if (step === 'failed') stepFailed('comfyui_running', 'python.exe (1234)');
     else if (step === 'cancel') { this.show('installing'); onEvent({ event: 'close-request' }); }
     else if (step === 'old') { this.info.gpu = { name: 'NVIDIA GeForce RTX 3060', driver: '551.86', ok: false, problem: 'old_driver' }; stepData(); startInstall(); }
-    else if (step === 'picker') { stepWhere(); pickFolder('D:\\Model Depot'); }
+    else if (step === 'picker') { stepWhere(); pickFolder(this.info.defaults.install); }
     else stepComfy();
   },
 };

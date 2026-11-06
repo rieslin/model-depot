@@ -9,12 +9,12 @@
 // drafts). Pictures are added from a file or dropped on the dossier, and any example can be the cover.
 import { api, upload } from './api.js';
 import { h, fill, formatBytes } from './dom.js';
-import { t, currentLang } from './i18n.js';
+import { t, currentLang, locale, joinList } from './i18n.js';
 import { familyName, familyCode } from './families.js';
 import { mosaicOf, loadImage } from './mosaic.js';
 import { safeFragment } from './sanitize.js';
 import { inLanguage, linesInLanguage } from './lang.js';
-import { MASK_FROM, levelName, icon, copyText, recall, remember, titleOf } from './ui.js';
+import { maskFrom, pageSetting, serverState, levelName, icon, copyText, recall, remember, titleOf } from './ui.js';
 import { decode, readout, rise, fade, moving, pace, reduced } from './motion.js';
 
 const HERO_ASPECT = 384 / 330;
@@ -24,7 +24,8 @@ const KEY_INFO = 'md.viewer_info';             // '0': the larger view hides the
 const KEY_OTHER = 'md.other_params';           // '1': that panel's "Other settings" is kept open
 const KEY_SOUND = 'md.video_sound';            // '1': the larger view plays videos with their sound on
 const THUMB_ASPECT = 70 / 97;
-const PICTURE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
+const COPIED_MS = 1600;           // how long a copy button says "copied"
+const READER_BUSY = ['queued', 'reading', 'waiting_gpu'];       // the local model's states while a reading is to come
 
 const CARD_LABEL = {
   sampler: 'dos.cf_sampler', scheduler: 'dos.cf_scheduler', steps: 'dos.cf_steps', cfg: 'dos.cf_cfg',
@@ -59,7 +60,7 @@ const NUMBER_FIELDS = new Set(['steps', 'cfg', 'clip_skip', 'width', 'height', '
 function shortDate(seconds) {
   if (!seconds) return '';
   const d = new Date(seconds * 1000);
-  return d.toLocaleDateString(currentLang() === 'zh' ? 'zh-CN' : 'en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(locale(), { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 let retry = 0;        // goes up with every retry, so the browser asks again instead of reusing a failed answer
@@ -140,8 +141,10 @@ const HIRES_PARAMS = [
 const NOT_OTHER = new Set(['prompt', 'negativePrompt', 'Size', 'width', 'height', 'comfy', 'hashes', 'resources',
   'civitaiResources', 'additionalResources', 'models', 'vaes', 'upscalers', 'Template', 'Negative Template', 'workflow',
   ...MAIN_PARAMS.flatMap(([, keys]) => keys), ...HIRES_PARAMS.flatMap(([, keys]) => keys)]);
-const RESOURCE_TYPE = { model: 'Checkpoint', checkpoint: 'Checkpoint', lora: 'LoRA', locon: 'LoRA', lycoris: 'LyCORIS',
-  embed: 'Embedding', embedding: 'Embedding', textualinversion: 'Embedding', vae: 'VAE' };
+// The resource types WebUI and civitai write, as the kinds named here; LyCORIS has its own name.
+const RESOURCE_TYPE = { model: 'checkpoint', checkpoint: 'checkpoint', lora: 'lora', locon: 'lora', lycoris: 'lycoris',
+  embed: 'embedding', embedding: 'embedding', textualinversion: 'embedding', vae: 'vae' };
+const resourceLabel = (type) => (type === 'lycoris' ? t('dos.res_lycoris') : t('kind.' + type));
 
 // Whether an example carries the settings it was made with.
 const hasParams = (s) => Boolean(s && s.params && typeof s.params === 'object' && Object.keys(s.params).length);
@@ -152,20 +155,31 @@ const hasParams = (s) => Boolean(s && s.params && typeof s.params === 'object' &
 function resourcesOf(p, matches) {
   const list = Array.isArray(p.resources) && p.resources.length ? p.resources
     : Array.isArray(p.additionalResources) ? p.additionalResources : [];
-  const short = (name) => String(name).split(/[\\/]/).pop().replace(/\.(safetensors|ckpt|pt|gguf)$/i, '');
+  // a name without its folder, and without the extension when it is a model file's
+  const short = (name) => {
+    const base = String(name).split(/[\\/]/).pop();
+    const dot = base.lastIndexOf('.');
+    return dot >= 0 && serverState().extensions.includes(base.slice(dot).toLowerCase()) ? base.slice(0, dot) : base;
+  };
+  // the kind a type names, and how it is shown: the kind's name, or the type as written when it is none of them
+  const typed = (raw) => {
+    const code = String(raw || '').toLowerCase();
+    const kind = Object.prototype.hasOwnProperty.call(RESOURCE_TYPE, code) ? RESOURCE_TYPE[code] : null;
+    return { kind, type: kind ? resourceLabel(kind) : String(raw || '') };
+  };
   const hashes = p.hashes && typeof p.hashes === 'object' ? p.hashes : {};
   const hashKey = (hash) => (typeof hash === 'string' && hash.trim() ? 'h:' + hash.trim().toLowerCase() : null);
   const out = list.filter((r) => r && typeof r === 'object' && plain(r.name) !== null).map((r) => {
     const type = String(r.type || '').toLowerCase();
     return {
       name: short(r.name),
-      type: RESOURCE_TYPE[type] || String(r.type || ''),
+      ...typed(r.type),
       weight: plain(r.weight) !== null ? r.weight : plain(r.strength),
       key: hashKey(r.hash) || hashKey(hashes[(type === 'model' ? 'model' : type + ':' + r.name)]),
     };
   });
-  if (plain(p.Model) !== null && !out.some((r) => r.type === 'Checkpoint')) {
-    out.unshift({ name: short(p.Model), type: 'Checkpoint', weight: null, key: hashKey(p['Model hash']) || hashKey(hashes.model) });
+  if (plain(p.Model) !== null && !out.some((r) => r.kind === 'checkpoint')) {
+    out.unshift({ name: short(p.Model), ...typed('checkpoint'), weight: null, key: hashKey(p['Model hash']) || hashKey(hashes.model) });
   }
   // civitai's generator names versions by number only: the name is the file's here, or the version's
   if (!out.length && Array.isArray(p.civitaiResources)) {
@@ -175,13 +189,13 @@ function resourcesOf(p, matches) {
       const here = matches && matches['v:' + vid];
       out.push({
         name: here ? here.title + (here.version_name ? ' · ' + here.version_name : '') : plain(r.modelVersionName) || t('dos.res_version', { id: vid }),
-        type: RESOURCE_TYPE[String(r.type || '').toLowerCase()] || String(r.type || ''),
+        ...typed(r.type),
         weight: plain(r.weight) !== null ? r.weight : plain(r.strength),
         key: 'v:' + vid,
       });
     }
   }
-  return out.sort((a, b) => (a.type === 'Checkpoint' ? 0 : 1) - (b.type === 'Checkpoint' ? 0 : 1));
+  return out.sort((a, b) => (a.kind === 'checkpoint' ? 0 : 1) - (b.kind === 'checkpoint' ? 0 : 1));
 }
 
 // The settings in WebUI's "parameters" text, which WebUI and Forge read back from their prompt box.
@@ -212,10 +226,17 @@ function parametersText(p, sample) {
   return lines.join('\n');
 }
 
-// What a dropped or chosen file is, from its type or else its name: a PNG, JPEG or WebP, or null.
+// The picture files that can be added (/api/ui/state limits.picture_types: extensions), as media types.
+const mimeOf = (ext) => 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+function pictureMimes() {
+  return [...new Set(serverState().limits.picture_types.map(mimeOf))];
+}
+
+// What a dropped or chosen file is, from its type or else its name: one of those media types, or null.
 function pictureType(file) {
-  if (/^image\/(png|jpeg|webp)$/.test(file.type)) return file.type;
-  return PICTURE_TYPES[String(file.name || '').split('.').pop().toLowerCase()] || null;
+  if (pictureMimes().includes(file.type)) return file.type;
+  const ext = String(file.name || '').split('.').pop().toLowerCase();
+  return serverState().limits.picture_types.includes(ext) ? mimeOf(ext) : null;
 }
 
 function hasFiles(e) {
@@ -395,7 +416,7 @@ export class Dossier {
     if (!r) return;
     if (r.can_read) {
       try { await api('POST', '/api/ui/models/' + d.sha256 + '/notes', {}); } catch (e) { return; }
-    } else if (!['queued', 'reading', 'waiting_gpu'].includes(r.state)) {
+    } else if (!READER_BUSY.includes(r.state)) {
       return;
     }
     this.followReader(d.sha256);
@@ -412,8 +433,8 @@ export class Dossier {
       this.detail = detail;
       if (JSON.stringify(detail.card) !== before) this.refresh();
       const r = detail.card && detail.card.reader;
-      if (r && ['queued', 'reading', 'waiting_gpu'].includes(r.state)) this.followReader(sha);
-    }, 3000);
+      if (r && READER_BUSY.includes(r.state)) this.followReader(sha);
+    }, pageSetting('reader_follow_ms'));
   }
 
   async readPage(refresh, retry) {
@@ -436,7 +457,7 @@ export class Dossier {
 
   masked(index) {
     const s = this.items()[index];
-    return Boolean(s && !s.local && this.ctx.mask() && s.level >= MASK_FROM && !this.revealed.has(this.detail.sha256 + '/' + index));
+    return Boolean(s && !s.local && this.ctx.mask() && s.level >= maskFrom() && !this.revealed.has(this.detail.sha256 + '/' + index));
   }
 
   isCover(s) {
@@ -546,7 +567,7 @@ export class Dossier {
   // The covers were shown again (the eye switch): an example that was masked is decoded as it appears.
   revealCovers() {
     const s = this.detail && this.items()[this.index];
-    this.decodeNext = Boolean(s && s.level >= MASK_FROM);
+    this.decodeNext = Boolean(s && s.level >= maskFrom());
     this.draw(true);
   }
 
@@ -556,12 +577,12 @@ export class Dossier {
     const items = this.items();
     const shown = items[this.index];
     // what the hero shows, so that a redraw showing the same keeps it (draw)
-    const key = [d.sha256, this.index, shown ? shown.src : d.cover || '', this.masked(this.index) || (this.ctx.mask() && d.cover_level >= MASK_FROM),
+    const key = [d.sha256, this.index, shown ? shown.src : d.cover || '', this.masked(this.index) || (this.ctx.mask() && d.cover_level >= maskFrom()),
       retry].join('|');
     const hero = h('div', { class: 'dos-hero', 'data-key': key });
     if (!items.length) {
       if (d.cover) {
-        const masked = this.ctx.mask() && d.cover_level >= MASK_FROM;
+        const masked = this.ctx.mask() && d.cover_level >= maskFrom();
         if (masked) this.putMosaic(hero, d.cover, HERO_ASPECT);
         else hero.append(h('img', { src: d.cover, alt: '' }));
       } else {
@@ -872,7 +893,7 @@ export class Dossier {
     if (!r.key) return h('li', null, parts, h('span', { class: 'go' }));
     const vid = r.key.startsWith('v:') ? r.key.slice(2) : null;
     return h('li', { class: 'away', title: t('dos.res_away') }, parts, vid
-      ? h('a', { class: 'go', href: 'https://civitai.com/model-versions/' + vid, target: '_blank', rel: 'noopener noreferrer',
+      ? h('a', { class: 'go', href: serverState().hosts.civitai_page + '/model-versions/' + vid, target: '_blank', rel: 'noopener noreferrer',
         title: t('dos.open_civitai'), 'aria-label': t('dos.open_civitai') }, icon('i-external'))
       : h('span', { class: 'go' }));
   }
@@ -888,7 +909,7 @@ export class Dossier {
   // ---- adding pictures, choosing the cover --------------------------------------------------------------------------
   pickImages() {
     if (!this.picker) {
-      this.picker = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', multiple: true, hidden: true });
+      this.picker = h('input', { type: 'file', accept: pictureMimes().join(','), multiple: true, hidden: true });
       this.picker.addEventListener('change', () => {
         const files = [...this.picker.files];
         this.picker.value = '';
@@ -921,10 +942,12 @@ export class Dossier {
     const sha = d.sha256;
     const errors = [];
     const usable = [];
+    const mb = serverState().limits.picture_mb;       // the server refuses a larger one: not sent at all
     for (const file of files) {
       const type = pictureType(file);
-      if (type) usable.push({ file, type });
-      else errors.push(t('dos.add_failed', { name: file.name, reason: t('err.image_unreadable') }));
+      if (!type) errors.push(t('dos.add_failed', { name: file.name, reason: t('err.image_unreadable') }));
+      else if (file.size > mb * 1024 * 1024) errors.push(t('dos.add_failed', { name: file.name, reason: t('err.image_too_large', { mb }) }));
+      else usable.push({ file, type });
     }
     this.adding = true;
     let latest = null;
@@ -1196,7 +1219,7 @@ export class Dossier {
         span.textContent = t('dos.copied');
         readout(span, 0, { duration: 200 });
         clearTimeout(copied);
-        copied = setTimeout(() => { copied = null; span.textContent = text; }, 1600);
+        copied = setTimeout(() => { copied = null; span.textContent = text; }, COPIED_MS);
       }
     });
     return button;
@@ -1254,7 +1277,7 @@ export class Dossier {
         span.textContent = t('dos.copied');
         readout(span, 0, { duration: 200 });
         clearTimeout(copied);
-        copied = setTimeout(() => { copied = null; span.textContent = labelText(); }, 1600);
+        copied = setTimeout(() => { copied = null; span.textContent = labelText(); }, COPIED_MS);
       }
     });
     button.relabel = () => { if (!copied) span.textContent = labelText(); };
@@ -1436,7 +1459,7 @@ export class Dossier {
     const e = this.editing;
     const label = t(CARD_LABEL[field]);
     const sug = suggestionOf(card, field);
-    const area = h('textarea', { class: 'ed-area', rows, maxLength: 8000, placeholder: field === 'notes' ? t('dos.notes_hint') : t('dos.unset'), spellcheck: false });
+    const area = h('textarea', { class: 'ed-area', rows, maxLength: serverState().limits.text, placeholder: field === 'notes' ? t('dos.notes_hint') : t('dos.unset'), spellcheck: false });
     area.value = e.values[field];
     area.setAttribute('aria-label', label);
     area.addEventListener('input', () => { e.values[field] = area.value; });
@@ -1455,7 +1478,7 @@ export class Dossier {
     const d = this.detail;
     const e = this.editing;
     const original = d.original || { title: d.title, base_model: null };
-    const name = h('input', { class: 'ed-input ed-big', type: 'text', maxLength: 200, spellcheck: false });
+    const name = h('input', { class: 'ed-input ed-big', type: 'text', maxLength: serverState().limits.info, spellcheck: false });
     name.value = e.title;
     name.setAttribute('aria-label', t('dos.f_name'));
     name.addEventListener('input', () => { e.title = name.value; });
@@ -1466,7 +1489,7 @@ export class Dossier {
       restore: () => { e.title = original.title || ''; name.value = e.title; },
     });
     name.addEventListener('input', nameMeta.update);
-    const base = h('input', { class: 'ed-input', type: 'text', maxLength: 200, list: 'dos-base-models', placeholder: t('dos.unset'), spellcheck: false });
+    const base = h('input', { class: 'ed-input', type: 'text', maxLength: serverState().limits.info, list: 'dos-base-models', placeholder: t('dos.unset'), spellcheck: false });
     base.value = e.base_model;
     base.setAttribute('aria-label', t('dos.f_base_model'));
     base.addEventListener('input', () => { e.base_model = base.value; });
@@ -1500,7 +1523,7 @@ export class Dossier {
     });
     const draw = (focusLast) => {
       fill(rows, e.triggers.map((w, i) => {
-        const word = h('input', { class: 'ed-word', type: 'text', maxLength: 500, placeholder: t('dos.cf_trigger'), spellcheck: false });
+        const word = h('input', { class: 'ed-word', type: 'text', maxLength: serverState().limits.trigger, placeholder: t('dos.cf_trigger'), spellcheck: false });
         word.value = w.text;
         word.setAttribute('aria-label', t('dos.cf_trigger'));
         word.addEventListener('input', () => { w.text = word.value; meta.update(); });
@@ -1606,7 +1629,7 @@ export class Dossier {
       const blocked = !f.inside ? t('dos.trash_outside') : !f.recycle_bin ? t('dos.trash_no_bin') : null;
       const box = many ? h('input', { type: 'checkbox', checked: chosen.has(f.path), disabled: Boolean(blocked),
         onchange: (e) => { if (e.target.checked) chosen.add(f.path); else chosen.delete(f.path); sync(); } }) : null;
-      const beside = f.sidecars.map(fileName).join(currentLang() === 'zh' ? '、' : ', ');
+      const beside = joinList(f.sidecars.map(fileName));
       return h('li', { class: blocked ? 'off' : null }, h(many ? 'label' : 'div', { class: 'confirm-file' }, box,
         h('span', { class: 'what' }, h('span', { class: 'path' }, f.path), h('small', { class: 'size' }, formatBytes(f.bytes)),
           beside ? h('small', null, t('dos.trash_beside', { list: beside })) : null,

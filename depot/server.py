@@ -13,7 +13,6 @@ import json
 import logging
 import mimetypes
 import os
-import re
 import string
 import subprocess
 import sys
@@ -25,21 +24,38 @@ from aiohttp import web
 
 from . import API_VERSION, APP_NAME, __version__, card_samples, comfy, config as config_mod, folders, kinds, links
 from . import inbox as inbox_mod
-from . import hfhub, llm_install, netroute, nettest, paths as paths_mod, reader as reader_mod, scan, sniff
+from . import library as library_mod
+from . import COPYRIGHT, LICENSE_URL, advanced, cards, catalog, companions, hfhub, llm_install, netroute, nettest
+from . import paths as paths_mod, reader as reader_mod, scan, sniff
 from .cards import CardError
 from .civitai import CivitaiError
-from .downloads import AddError
+from .downloads import TRANSIENT_ERRORS, AddError
 from .image_meta import ImageError
+from .netroute import LOOPBACK_NAMES
 from .store import is_sha256
 from .strings import LANGS, STRINGS, t
 from .trash import TrashError
 
 log = logging.getLogger("depot.server")
 
-_LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 _MAX_BROWSE_ENTRIES = 2000
-_TRANSIENT_ERRORS = {"network", "server", "rate_limited", "link_expired", "incomplete", "range_mismatch"}
 _EVENT_KEEPALIVE = 15.0
+
+
+def _web_address(text):
+    """Does the text start as an http(s) address, by the same test the settings use?"""
+    return bool(config_mod._URL_RE.match(text))
+
+
+def _browser_cache():
+    """Cache-Control for the examples a browser may keep a while without asking again (server.browser_cache_seconds)."""
+    return "private, max-age=%d" % advanced.get("server.browser_cache_seconds")
+
+
+def _max_picture():
+    """The largest picture that can be added, in bytes (server.max_picture_mb: an upscaled PNG of a large picture runs
+    to tens of megabytes)."""
+    return int(advanced.get("server.max_picture_mb") * 1024 * 1024)
 
 
 def _civitai_api_error(e):
@@ -138,7 +154,7 @@ class Server:
 
     @staticmethod
     def is_local(request):
-        return _is_loopback(request.remote) and _host_name(request.headers.get("Host")) in _LOOPBACK_NAMES
+        return _is_loopback(request.remote) and _host_name(request.headers.get("Host")) in LOOPBACK_NAMES
 
     def _check_access(self, request):
         origin = request.headers.get("Origin")
@@ -274,10 +290,11 @@ class Server:
         address, folder, size and fingerprint (depot/companions.json), and whether the library has each (by
         fingerprint). ?family= narrows it to some families (comma-separated)."""
         wanted = {f.strip() for f in request.query.get("family", "").split(",") if f.strip()}
-        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "companions.json"), encoding="utf-8") as f:
-            table = json.load(f)
+        table = companions.table()
         present = self.library.present_by_hash()
-        files = [dict(row, in_library=present.get(row["sha256"]) if row.get("sha256") else None)
+        # the addresses are on huggingface.co; a mirror set in the advanced settings stands in for it
+        files = [dict(row, url=hfhub.on_site(row.get("url")),
+                      in_library=present.get(row["sha256"]) if row.get("sha256") else None)
                  for row in table["files"] if not wanted or row["family"] in wanted]
         return web.json_response({"checked": table.get("checked"), "files": files})
 
@@ -403,16 +420,29 @@ class Server:
         return resp
 
     # ---- /api/ui: the page's own calls -----------------------------------------------------------------------------
+    _PICTURE_TYPES = ("png", "jpg", "jpeg", "webp")      # the files the page offers to add as a model's picture
+
     async def ui_state(self, request):
+        families = {key: dict({"code": f["code"], "name": f["name"]}, **({"arch": f["arch"]} if f.get("arch") else {}))
+                    for key, f in catalog.load("families")["families"].items()}
         return web.json_response({
             "app": APP_NAME, "version": __version__, "configured": self.cfg.configured,
             "language": self.lang(request), "language_chosen": bool(self.cfg.language), "local": self.is_local(request),
             "config": self.cfg.public(), "config_problem": self.cfg.load_problem,
             "data_dir": self.paths.root, "types": list(kinds.COMMON_TYPES),
             "kind_by_type": dict(kinds.KIND_BY_TYPE), "kinds": list(kinds.KINDS),
-            "defaults": {"sites": list(config_mod.CIVITAI_SITES), "env_var": "CIVITAI_TOKEN"},
+            "defaults": {"sites": list(config_mod.CIVITAI_SITES), "env_var": config_mod.DEFAULT_ENV_VAR},
             # the names a card's sampler and scheduler are chosen from when it is edited (ComfyUI's)
             "samplers": list(card_samples.COMFY_SAMPLERS), "schedulers": list(card_samples.COMFY_SCHEDULERS),
+            "families": families,
+            "page": advanced.group("page"),
+            "limits": {"text": cards.MAX_TEXT, "info": library_mod.MAX_INFO, "trigger": cards.MAX_TRIGGER,
+                       "picture_mb": advanced.get("server.max_picture_mb"), "picture_types": list(self._PICTURE_TYPES),
+                       "context": list(config_mod.CONTEXT_RANGE)},
+            "hosts": {"civitai": list(links.CIVITAI_DOMAINS), "huggingface": advanced.get("huggingface.hosts"),
+                      "civitai_page": advanced.get("civitai.page_site")},
+            "extensions": sorted(kinds.MODEL_EXTENSIONS),
+            "copyright": COPYRIGHT, "license_url": LICENSE_URL,
         })
 
     async def ui_strings(self, request):
@@ -475,22 +505,16 @@ class Server:
         return web.json_response({"path": path, "exists": exists, "files": files, "bytes": size,
                                   "suggested_type": suggested})
 
-    _TYPE_BY_FOLDER_NAME = {
-        "lora": "loras", "loras": "loras", "lycoris": "loras", "stable_diffusion": "checkpoints",
-        "checkpoints": "checkpoints", "checkpoint": "checkpoints", "unet": "diffusion_models",
-        "diffusion_models": "diffusion_models", "vae": "vae", "embeddings": "embeddings", "embedding": "embeddings",
-        "text_encoder": "text_encoders", "text_encoders": "text_encoders", "clip": "text_encoders",
-        "esrgan": "upscale_models", "upscale_models": "upscale_models", "controlnet": "controlnet",
-        "clip_vision": "clip_vision"}
-
-    @classmethod
-    def _suggest_type(cls, path):
+    @staticmethod
+    def _suggest_type(path):
         """A ComfyUI type to propose for a folder added by hand: from its name ("Lora" -> loras), else from what
         the first few files in it are, else from a parent folder's name, else the folder's own name ("other")."""
         parts = [p for p in os.path.normpath(path).split(os.sep) if p]
 
+        by_folder_name = catalog.load("comfyui")["folder_name_types"]
+
         def by_name(name):
-            return cls._TYPE_BY_FOLDER_NAME.get(name.lower().replace("-", "_").replace(" ", "_"))
+            return by_folder_name.get(name.lower().replace("-", "_").replace(" ", "_"))
 
         if parts and by_name(parts[-1]):
             return by_name(parts[-1])
@@ -501,7 +525,7 @@ class Server:
                     continue
                 seen += 1
                 content = (sniff.sniff(os.path.join(current, name), name) or {}).get("content")
-                ctype = scan._CONTENT_TYPE.get(content)
+                ctype = scan.content_type(content)
                 if ctype:
                     votes[ctype] = votes.get(ctype, 0) + 1
                 if seen >= 8:
@@ -519,7 +543,7 @@ class Server:
         """Whether a .env file holds the named variable. The value itself is never returned."""
         body = await self._json_body(request)
         path = os.path.normpath(os.path.expanduser(os.path.expandvars(str(body.get("env_file") or "").strip().strip('"'))))
-        name = str(body.get("env_var") or "CIVITAI_TOKEN").strip()
+        name = str(body.get("env_var") or config_mod.DEFAULT_ENV_VAR).strip()
         _value, problem = config_mod.read_env_var(path, name)
         return web.json_response({"ok": problem is None, "problem": problem})
 
@@ -534,7 +558,7 @@ class Server:
         proxy = config_mod.normal_proxy(body.get("proxy"))
         if mode == "proxy" and proxy.lower().startswith("socks"):
             raise ApiError(400, "bad_request", "problem.proxy_socks")
-        if mode == "proxy" and not re.match(r"^https?://[^\s/]+", proxy, re.I):
+        if mode == "proxy" and not _web_address(proxy):
             raise ApiError(400, "bad_request", "problem.proxy_bad")
         system = netroute.read(force=True)
         route = config_mod.route_proxy(mode, proxy)
@@ -721,7 +745,7 @@ class Server:
         except (CivitaiError, OSError, ValueError) as e:
             log.info("example image %s/%d could not be fetched: %s", sha[:12], index, e)
             raise ApiError(502, "fetch_failed", "err.sample_fetch_failed") from e
-        return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400", "Content-Type": "image/jpeg"})
+        return web.FileResponse(path, headers={"Cache-Control": _browser_cache(), "Content-Type": "image/jpeg"})
 
     async def ui_sample_video(self, request):
         """One of the author's video examples: the copy kept here (with byte ranges), or, the first time, the copy on its
@@ -735,7 +759,7 @@ class Server:
         except (CivitaiError, OSError) as e:
             log.info("example video %s/%s could not be fetched: %s", sha[:12], request.match_info["index"], e)
             raise ApiError(502, "fetch_failed", "err.sample_fetch_failed") from e
-        headers = {"Cache-Control": "private, max-age=86400", "Content-Type": "video/mp4"}
+        headers = {"Cache-Control": _browser_cache(), "Content-Type": "video/mp4"}
         if path is not None:
             return web.FileResponse(path, headers=headers)
         if job.size is not None:
@@ -828,14 +852,15 @@ class Server:
         """The models a running model server offers (its /models list), to check an address before saving it."""
         body = await self._json_body(request)
         url = str(body.get("url") or "").strip().rstrip("/")
-        if not re.match(r"^https?://[^\s/]+", url, re.I):
+        if not _web_address(url):
             raise ApiError(400, "bad_request", "problem.reader_url_bad")
         key = str(body.get("key") or "") or self.cfg.data["reader"]["endpoint"]["key"]
         headers = {"Authorization": "Bearer " + key} if key else {}
+        timeout = aiohttp.ClientTimeout(total=advanced.get("reader.probe_total"),
+                                        sock_connect=advanced.get("reader.probe_connect"))
         try:
             async with aiohttp.ClientSession(trust_env=False) as session:
-                async with session.get(url + "/models", headers=headers,
-                                       timeout=aiohttp.ClientTimeout(total=10, sock_connect=3)) as resp:
+                async with session.get(url + "/models", headers=headers, timeout=timeout) as resp:
                     data = await resp.json(content_type=None) if resp.status == 200 else None
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             raise ApiError(502, "unreachable", "err.reader_unreachable") from e
@@ -890,8 +915,6 @@ class Server:
         return web.json_response({"moved": moved, "revision": self.library.db.revision()})
 
     # ---- what the user adds and changes in the dossier --------------------------------------------------------------
-    _MAX_PICTURE = 80 * 1024 * 1024         # an upscaled PNG of a large picture runs to tens of megabytes
-
     def _detail_of(self, sha):
         detail = self.library.detail(sha)
         if detail is None:
@@ -905,11 +928,12 @@ class Server:
         if not (request.content_type or "").startswith("image/"):
             raise ApiError(400, "bad_request", "err.image_unreadable")
         data = bytearray()
+        limit = _max_picture()
         # read here, not with request.read(): the app's limit on a request is far below a large picture
         async for chunk in request.content.iter_chunked(1 << 16):
             data.extend(chunk)
-            if len(data) > self._MAX_PICTURE:
-                raise ApiError(413, "too_large", "err.image_too_large", mb=self._MAX_PICTURE // (1024 * 1024))
+            if len(data) > limit:
+                raise ApiError(413, "too_large", "err.image_too_large", mb=advanced.get("server.max_picture_mb"))
         name = urllib.parse.unquote(request.headers.get("X-File-Name", ""))
         try:
             await self.library.add_image(sha, bytes(data), name)
@@ -963,7 +987,7 @@ class Server:
         except LookupError as e:
             raise ApiError(404, "not_found", "err.model_not_found") from e
         except ValueError as e:
-            err = ApiError(400, "bad_request", "err.info_bad")
+            err = ApiError(400, "bad_request", "err.info_bad", n=library_mod.MAX_INFO)
             err.extra = {"field": str(e)}
             raise err from e
         return self._detail_of(sha)
@@ -1056,7 +1080,7 @@ class Server:
         except (CivitaiError, OSError, ValueError) as e:
             log.info("example image %d/%d could not be fetched: %s", version_id, index, e)
             raise ApiError(502, "fetch_failed", "err.sample_fetch_failed") from e
-        return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400", "Content-Type": "image/jpeg"})
+        return web.FileResponse(path, headers={"Cache-Control": _browser_cache(), "Content-Type": "image/jpeg"})
 
     # ---- /api/ui/downloads: the queue ------------------------------------------------------------------------------
     def _download_message(self, lang, item):
@@ -1072,7 +1096,7 @@ class Server:
             need, _, free = (item["error_detail"] or "0 0").partition(" ")
             params = {"need": _size(int(need or 0)), "free": _size(int(free or 0))}
         reason = t(lang, "dl.err." + code, **params) if ("dl.err." + code) in STRINGS else t(lang, "dl.err.internal")
-        if code in _TRANSIENT_ERRORS:
+        if code in TRANSIENT_ERRORS:
             return t(lang, "dl.err.gave_up", reason=reason)
         return reason.strip()
 

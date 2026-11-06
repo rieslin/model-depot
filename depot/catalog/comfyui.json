@@ -1,0 +1,308 @@
+{
+  "_about": "ComfyUI's vocabulary. model_extensions: what ComfyUI's loaders list (folder_paths.supported_pt_extensions); extra_extensions: model files they do not list. legacy_types: ComfyUI's renamed types. kind_by_type: folder type -> the kind the API gives. common_types: the types the settings page offers, in order. builtin_types: ComfyUI's own types and folders, used when an install's folder_paths.py cannot be read. not_model_types: types that are not lists of model files. output_model_folders: [type, sub-folder of output] that ComfyUI adds at start. folder_name_types: folder name -> type, for suggesting the type of a folder added by hand. content_types: what a file's header shows -> type. hf_path_types: folder names in a Hugging Face repository path that tell the type. hf_name_types: [regular expression on the file name, type], first match wins. upscaler_name_pattern: names of upscalers saved as pickles. samplers, schedulers: the names a card's sampler and scheduler are chosen from. sampler_nodes: node classes whose inputs are read as a picture's settings.",
+  "model_extensions": [
+    ".bin",
+    ".ckpt",
+    ".pkl",
+    ".pt",
+    ".pt2",
+    ".pth",
+    ".safetensors",
+    ".sft"
+  ],
+  "extra_extensions": [
+    ".gguf",
+    ".onnx"
+  ],
+  "legacy_types": {
+    "unet": "diffusion_models",
+    "clip": "text_encoders"
+  },
+  "kind_by_type": {
+    "checkpoints": "checkpoint",
+    "diffusion_models": "diffusion_model",
+    "loras": "lora",
+    "embeddings": "embedding",
+    "vae": "vae",
+    "text_encoders": "text_encoder",
+    "upscale_models": "upscaler",
+    "controlnet": "controlnet"
+  },
+  "common_types": [
+    "checkpoints",
+    "diffusion_models",
+    "loras",
+    "embeddings",
+    "vae",
+    "text_encoders",
+    "upscale_models",
+    "controlnet",
+    "clip_vision",
+    "style_models",
+    "gligen",
+    "hypernetworks",
+    "photomaker",
+    "vae_approx",
+    "latent_upscale_models",
+    "model_patches",
+    "audio_encoders"
+  ],
+  "builtin_types": [
+    [
+      "checkpoints",
+      [
+        "checkpoints"
+      ]
+    ],
+    [
+      "loras",
+      [
+        "loras"
+      ]
+    ],
+    [
+      "vae",
+      [
+        "vae"
+      ]
+    ],
+    [
+      "text_encoders",
+      [
+        "text_encoders",
+        "clip"
+      ]
+    ],
+    [
+      "diffusion_models",
+      [
+        "unet",
+        "diffusion_models"
+      ]
+    ],
+    [
+      "clip_vision",
+      [
+        "clip_vision"
+      ]
+    ],
+    [
+      "style_models",
+      [
+        "style_models"
+      ]
+    ],
+    [
+      "embeddings",
+      [
+        "embeddings"
+      ]
+    ],
+    [
+      "vae_approx",
+      [
+        "vae_approx"
+      ]
+    ],
+    [
+      "controlnet",
+      [
+        "controlnet",
+        "t2i_adapter"
+      ]
+    ],
+    [
+      "gligen",
+      [
+        "gligen"
+      ]
+    ],
+    [
+      "upscale_models",
+      [
+        "upscale_models"
+      ]
+    ],
+    [
+      "latent_upscale_models",
+      [
+        "latent_upscale_models"
+      ]
+    ],
+    [
+      "hypernetworks",
+      [
+        "hypernetworks"
+      ]
+    ],
+    [
+      "photomaker",
+      [
+        "photomaker"
+      ]
+    ],
+    [
+      "model_patches",
+      [
+        "model_patches"
+      ]
+    ],
+    [
+      "audio_encoders",
+      [
+        "audio_encoders"
+      ]
+    ]
+  ],
+  "not_model_types": [
+    "classifiers",
+    "configs",
+    "custom_nodes",
+    "datasets",
+    "diffusers"
+  ],
+  "output_model_folders": [
+    [
+      "checkpoints",
+      "checkpoints"
+    ],
+    [
+      "clip",
+      "clip"
+    ],
+    [
+      "vae",
+      "vae"
+    ],
+    [
+      "diffusion_models",
+      "diffusion_models"
+    ],
+    [
+      "loras",
+      "loras"
+    ]
+  ],
+  "folder_name_types": {
+    "lora": "loras",
+    "loras": "loras",
+    "lycoris": "loras",
+    "stable_diffusion": "checkpoints",
+    "checkpoints": "checkpoints",
+    "checkpoint": "checkpoints",
+    "unet": "diffusion_models",
+    "diffusion_models": "diffusion_models",
+    "vae": "vae",
+    "embeddings": "embeddings",
+    "embedding": "embeddings",
+    "text_encoder": "text_encoders",
+    "text_encoders": "text_encoders",
+    "clip": "text_encoders",
+    "esrgan": "upscale_models",
+    "upscale_models": "upscale_models",
+    "controlnet": "controlnet",
+    "clip_vision": "clip_vision"
+  },
+  "content_types": {
+    "checkpoint": "checkpoints",
+    "diffusion_model": "diffusion_models",
+    "lora": "loras",
+    "vae": "vae",
+    "text_encoder": "text_encoders",
+    "embedding": "embeddings",
+    "controlnet": "controlnet",
+    "upscaler": "upscale_models",
+    "model_patch": "model_patches"
+  },
+  "hf_path_types": [
+    "checkpoints",
+    "diffusion_models",
+    "text_encoders",
+    "vae",
+    "loras",
+    "upscale_models",
+    "embeddings",
+    "controlnet",
+    "clip_vision",
+    "model_patches",
+    "latent_upscale_models",
+    "style_models",
+    "unet",
+    "clip"
+  ],
+  "hf_name_types": [
+    [
+      "vae",
+      "vae"
+    ],
+    [
+      "lora",
+      "loras"
+    ],
+    [
+      "text_?encoder|clip_|t5xxl|umt5|qwen\\d|qwen_\\d|gemma|mistral",
+      "text_encoders"
+    ],
+    [
+      "(^|[^a-z0-9])\\dx[-_]|esrgan|upscal",
+      "upscale_models"
+    ]
+  ],
+  "upscaler_name_pattern": "(^|[^a-z0-9])\\d{1}x[-_ ]|esrgan|realesr|upscal|swinir|\\bdat\\b|span|compact",
+  "samplers": [
+    "euler",
+    "euler_cfg_pp",
+    "euler_ancestral",
+    "euler_ancestral_cfg_pp",
+    "heun",
+    "heunpp2",
+    "dpm_2",
+    "dpm_2_ancestral",
+    "lms",
+    "dpm_fast",
+    "dpm_adaptive",
+    "dpmpp_2s_ancestral",
+    "dpmpp_2s_ancestral_cfg_pp",
+    "dpmpp_sde",
+    "dpmpp_sde_gpu",
+    "dpmpp_2m",
+    "dpmpp_2m_cfg_pp",
+    "dpmpp_2m_sde",
+    "dpmpp_2m_sde_gpu",
+    "dpmpp_3m_sde",
+    "dpmpp_3m_sde_gpu",
+    "ddpm",
+    "lcm",
+    "ipndm",
+    "ipndm_v",
+    "deis",
+    "res_multistep",
+    "res_multistep_cfg_pp",
+    "res_multistep_ancestral",
+    "gradient_estimation",
+    "er_sde",
+    "seeds_2",
+    "seeds_3",
+    "sa_solver",
+    "ddim",
+    "uni_pc",
+    "uni_pc_bh2"
+  ],
+  "schedulers": [
+    "simple",
+    "sgm_uniform",
+    "karras",
+    "exponential",
+    "ddim_uniform",
+    "beta",
+    "normal",
+    "linear_quadratic",
+    "kl_optimal"
+  ],
+  "sampler_nodes": [
+    "KSampler",
+    "KSamplerAdvanced",
+    "SamplerCustom",
+    "SamplerCustomAdvanced"
+  ]
+}

@@ -53,7 +53,8 @@ namespace ModelDepot
             showSignal = show;
             quitSignal = quit;
             root = FindRoot();
-            // MODEL_DEPOT_DATA, else the folder the Windows setup chose (install.json next to run.py), else data\
+            // MODEL_DEPOT_DATA, else the folder the Windows setup chose (install.json next to run.py), else data\: the
+            // order depot\paths.py and scripts\common.ps1 find it in
             var data = Environment.GetEnvironmentVariable("MODEL_DEPOT_DATA");
             if (string.IsNullOrWhiteSpace(data))
             {
@@ -424,13 +425,15 @@ namespace ModelDepot
         // ---- the loading screen ------------------------------------------------------------------------------------
         // desktop\loader.html (made by desktop\loader-src\make.py): the library's index of base models with its red
         // marker walking down it, until the program answers; then it hands over to the page's first paint. It is told
-        // the language, and the base models the library showed last time (the page posts them, OnWebMessage).
+        // the language with the sentences of scripts\launcher-strings.json in it, and the base models the library
+        // showed last time (the page posts them, OnWebMessage).
         bool ShowLoader()
         {
             string html;
             try { html = File.ReadAllText(Path.Combine(root, "desktop", "loader.html"), Encoding.UTF8); }
             catch { return false; }
-            var given = "<script>window.LOADER_WORDS={\"lang\":\"" + Words.Lang + "\"};window.LOADER_FAMILIES=" + ReadFamilies() + ";</script>";
+            var given = "<script>window.LOADER_WORDS=" + new JavaScriptSerializer().Serialize(Words.All()) +
+                ";window.LOADER_FAMILIES=" + ReadFamilies() + ";</script>";
             int at = html.IndexOf("<head>", StringComparison.OrdinalIgnoreCase);
             html = at < 0 ? given + html : html.Insert(at + "<head>".Length, given);
             loaderShown = true;
@@ -525,6 +528,8 @@ namespace ModelDepot
 
         // The same start as Start.cmd, minus the browser: scripts\start.ps1 finds a Python, starts the program hidden
         // and waits until it answers. On a computer where nothing is prepared yet it asks before downloading anything.
+        // It is waited for as long as the advanced setting desktop.start_wait says (without the shipped settings, a
+        // broken installation, until it ends).
         async Task<bool> LaunchProgram()
         {
             var script = Path.Combine(root, "scripts", "start.ps1");
@@ -533,10 +538,12 @@ namespace ModelDepot
             {
                 UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = root,
             };
+            var wait = Advanced.Desktop(root, "start_wait");
+            int ms = wait.HasValue ? (int)Math.Min(int.MaxValue, wait.Value * 1000) : -1;
             try
             {
                 using (var p = Process.Start(psi))
-                    await Task.Run(() => p.WaitForExit(180000));
+                    await Task.Run(() => p.WaitForExit(ms));
             }
             catch { return false; }
             return true;
@@ -623,10 +630,10 @@ namespace ModelDepot
         void ShowNote(string message, string extra = "")
         {
             loaderShown = false;
-            const string glyphs =
-                "<button onclick=\"post('min')\" aria-label='min'><svg viewBox='0 0 20 20'><path d='M4 10.5h12' stroke='currentColor' stroke-width='1.6'/></svg></button>" +
-                "<button onclick=\"post('max')\" aria-label='max'><svg viewBox='0 0 20 20'><path d='M4.75 4.75h10.5v10.5H4.75z' fill='none' stroke='currentColor' stroke-width='1.6'/></svg></button>" +
-                "<button onclick=\"post('close')\" aria-label='close'><svg viewBox='0 0 20 20'><path d='M5 5l10 10M15 5L5 15' stroke='currentColor' stroke-width='1.8' stroke-linecap='square'/></svg></button>";
+            var glyphs =
+                "<button onclick=\"post('min')\" aria-label='" + Html(Words.T("win_min")) + "'><svg viewBox='0 0 20 20'><path d='M4 10.5h12' stroke='currentColor' stroke-width='1.6'/></svg></button>" +
+                "<button onclick=\"post('max')\" aria-label='" + Html(Words.T("win_max")) + "'><svg viewBox='0 0 20 20'><path d='M4.75 4.75h10.5v10.5H4.75z' fill='none' stroke='currentColor' stroke-width='1.6'/></svg></button>" +
+                "<button onclick=\"post('close')\" aria-label='" + Html(Words.T("win_close")) + "'><svg viewBox='0 0 20 20'><path d='M5 5l10 10M15 5L5 15' stroke='currentColor' stroke-width='1.8' stroke-linecap='square'/></svg></button>";
             var css = FontFace() +
                 "html,body{margin:0;height:100%;background:#f3f3f2;color:#585b5e;font:14px/1.5 'Segoe UI','Microsoft YaHei UI','Microsoft YaHei',sans-serif;" +
                 "-webkit-app-region:drag;app-region:drag;user-select:none;overflow:hidden}" +

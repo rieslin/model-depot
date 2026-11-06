@@ -40,6 +40,7 @@ class DataPaths:
         self.default_library = os.path.join(root, "library")   # per-model records and covers, unless config moves them
         self.cache = os.path.join(root, "cache")               # what can be fetched again (example images); never synced
         self.download_folders = os.path.join(root, "download-folders.json")    # the folder chosen last, per type
+        self.catalog = os.path.join(root, "catalog")           # this computer's own catalog files (catalog.py), if any
 
     def ensure(self):
         os.makedirs(self.root, exist_ok=True)

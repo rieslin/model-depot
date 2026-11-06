@@ -2,6 +2,8 @@
 <html lang="zh-Hans">
 <head>
 <meta charset="utf-8">
+<!--DRAFT_WORDS-->
+<!--DEFAULT_FAMILIES-->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>Model Depot</title>
@@ -45,15 +47,15 @@
 (() => {
   const L = LOADER;
   // the base models of the user's library, as its index showed them the last time (the window passes them in
-  // LOADER_FAMILIES: [code, name, architecture]); before the library was ever shown, a few current ones. Codes and
-  // names as web/js/families.js writes them. A short list, as the draft has it, not the whole index: the largest
-  // groups first, at most MAX (the user, 2026-10-08: "只要和之前设计那种列表就可以，别整个都显示出来").
+  // LOADER_FAMILIES: [code, name, architecture]); before the library was ever shown, a few current ones
+  // (LOADER_DEFAULT_FAMILIES, which make.py writes from depot/catalog/families.json). A short list, as the draft has
+  // it, not the whole index: the largest groups first, at most MAX (the user, 2026-10-08: "只要和之前设计那种列表就可以，别整个都显示出来").
   const MAX = 7;
-  const GIVEN = (Array.isArray(window.LOADER_FAMILIES) ? window.LOADER_FAMILIES : [])
+  const rows = (list) => (Array.isArray(list) ? list : [])
     .filter((f) => Array.isArray(f) && typeof f[0] === "string" && f[0] && typeof f[1] === "string").slice(0, MAX);
-  const FAMS = GIVEN.length ? GIVEN : [["KREA2", "Krea 2"], ["ANIMA", "Anima"], ["QWEN", "Qwen-Image"], ["ZIMG", "Z-Image"],
-    ["ILXL", "Illustrious", "SDXL"], ["SDXL", "SDXL"], ["FLUX2", "Flux.2"]];
-  const META = { zh: ["基础模型", "{a} 架构"], en: ["BASE MODEL", "{a} ARCHITECTURE"] }[L.lang];
+  const GIVEN = rows(window.LOADER_FAMILIES);
+  const FAMS = GIVEN.length ? GIVEN : rows(window.LOADER_DEFAULT_FAMILIES);
+  const META = [L.word("loader_base_model"), L.word("loader_architecture")];
   const P = 1.4, T0 = 0.75;                  // a step every 1.4 s; the first once the opening has played
   const SLIDE = 0.34, OUT = [0.04, 0.17], IN = [0.17, 0.47], META_IN = [0.24, 0.54];
   const HOLD = 0.08;
@@ -89,7 +91,7 @@
     const [, name, arch] = FAMS[i];
     const cjk = (s) => { const e = document.createElement("span"); if (/[㐀-鿿]/.test(s)) e.className = "cjk"; e.textContent = s; return e; };
     meta.append(cjk(META[0]), "  " + name);
-    if (arch) meta.append("  ·  ", cjk(META[1].replace("{a}", arch)));
+    if (arch) meta.append("  ·  ", cjk(META[1].replace("{0}", arch)));
   }
 
   // where the walk is at t: the item now current, the one before it, and how far into the step

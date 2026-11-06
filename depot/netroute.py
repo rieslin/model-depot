@@ -16,10 +16,14 @@ import time
 import urllib.request
 from urllib.parse import urlsplit
 
+from . import advanced
+
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})     # the names of this computer itself
+
 _KEY = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
-_TTL = 10.0                 # seconds a reading is kept: requests come in bursts, the setting changes rarely
+# A reading is kept for network.proxy_reuse seconds (requests come in bursts, the setting changes rarely), a script's
+# proxy for network.pac_reuse.
 _cache = {"at": 0.0, "info": None}
-_PAC_TTL = 300.0            # a script is fetched again after this long
 _pac_cache = {"at": 0.0, "url": None, "proxy": None}
 _PAC_PROXY = re.compile(r"\bPROXY\s+([A-Za-z0-9.\-\[\]:]+:\d{1,5})")
 
@@ -27,11 +31,11 @@ _PAC_PROXY = re.compile(r"\bPROXY\s+([A-Za-z0-9.\-\[\]:]+:\d{1,5})")
 def _pac_proxy(url):
     """The first HTTP proxy a PAC script served from this computer names, or None."""
     now = time.monotonic()
-    if _pac_cache["url"] == url and now - _pac_cache["at"] < _PAC_TTL:
+    if _pac_cache["url"] == url and now - _pac_cache["at"] < advanced.get("network.pac_reuse"):
         return _pac_cache["proxy"]
     proxy = None
     parts = urlsplit(url)
-    if parts.scheme in ("http", "https") and (parts.hostname or "").lower() in ("127.0.0.1", "localhost", "::1"):
+    if parts.scheme in ("http", "https") and (parts.hostname or "").lower() in LOOPBACK_NAMES:
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             text = opener.open(url, timeout=2).read(512 * 1024).decode("utf-8", "replace")
@@ -83,7 +87,7 @@ def read(force=False):
     {"proxy": the http(s) proxy to use or None, "server": Windows' text or "", "pac": an automatic configuration
      script is set, "socks_only": only a SOCKS proxy is set}."""
     now = time.monotonic()
-    if not force and _cache["info"] is not None and now - _cache["at"] < _TTL:
+    if not force and _cache["info"] is not None and now - _cache["at"] < advanced.get("network.proxy_reuse"):
         return _cache["info"]
     info = {"proxy": None, "server": "", "pac": False, "socks_only": False, "from_pac": False}
     pac_url = ""
